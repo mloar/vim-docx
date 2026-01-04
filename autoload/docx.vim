@@ -9,31 +9,6 @@ fun! docx#Load()
   call docx#Read() | $d | 0d
   sil exe 'keepalt file '.fnameescape(b:fn)
 
-  let insertions =  matchbufline("%", '‼\(\d\+\)‼\(\_.\{-}\)‼\1\+‼', 1, "$", {"submatches": v:true})
-  if len(insertions) > 0
-    call prop_type_add('insertion', {'highlight': 'DiffAdd'})
-    for ins in insertions
-      call prop_add(ins['lnum'], ins['byteidx'] + 7 + len(ins['submatches'][0]), {'length': len(ins['submatches'][1]), 'type': 'insertion', 'id': ins['submatches'][0]})
-    endfor
-    %s/‼\d\+‼//g
-  endif
-  let deletions =  matchbufline("%", '‽\(\d\+\)‽\(\_.\{-}\)‽\1\+‽', 1, "$", {"submatches": v:true})
-  if len(deletions) > 0
-    call prop_type_add('deletion', {'highlight': 'DiffDelete'})
-    for rm in deletions
-      call prop_add(rm['lnum'], rm['byteidx'] + 7 + len(rm['submatches'][0]), {'length': len(rm['submatches'][1]), 'type': 'deletion', 'id': rm['submatches'][0]})
-    endfor
-    %s/‽\d\+‽//g
-  endif
-  let comments =  matchbufline("%", '‾\(\d\+\)‾\(\_.\{-}\)‾\1\+‾', 1, "$", {"submatches": v:true})
-  if len(comments) > 0
-    call prop_type_add('comment', {'highlight': 'Underlined'})
-    for comment in comments
-      call prop_add(comment['lnum'], comment['byteidx'] + 7 + len(comment['submatches'][0]), {'length': len(comment['submatches'][1]), 'type': 'comment', 'id': comment['submatches'][0]})
-    endfor
-    %s/‾\d\+‾//g
-  endif
-
   let bufnr = bufadd('Styles')
   call setbufvar(bufnr, 'fn', b:fn)
   call setbufvar(bufnr, 'bufnr', bufnr)
@@ -53,8 +28,23 @@ endf
 
 fun! docx#Read()
   let docx_document = s:loadPart(b:fn, 'word/document.xml')
+  call prop_type_add('insertion', {'highlight': 'DiffAdd'})
+  call prop_type_add('deletion', {'highlight': 'DiffDelete'})
+  call prop_type_add('comment', {'highlight': 'Underlined'})
+  let b:insertions = []
+  let b:deletions = []
+  let b:comments = {}
   for node in filter(docx_document['children'][0]['children'], "v:val['tag'] == 'w:p'")
     call s:doParagraph(node)
+  endfor
+  for ins in b:insertions
+    call prop_add(ins['sline'], ins['scol'], {'end_lnum': ins['end_lnum'], 'end_col': ins['end_col'], 'type': 'insertion', 'id': ins['id']})
+  endfor
+  for del in b:deletions
+    call prop_add(del['sline'], del['scol'], {'end_lnum': del['end_lnum'], 'end_col': del['end_col'], 'type': 'deletion', 'id': del['id']})
+  endfor
+  for [key, comment] in items(b:comments)
+    call prop_add(comment['sline'], comment['scol'], {'end_lnum': comment['end_lnum'], 'end_col': comment['end_col'], 'type': 'comment', 'id': key})
   endfor
 endfun
 
@@ -318,15 +308,20 @@ fun! s:doRuns(lines, container)
     if node['tag'] == 'w:r'
       let ret = s:doRun(ret, node)
     elseif node['tag'] == 'w:ins'
-      let ret[-1] = ret[-1].'‼'.node['attributes']['w:id'].'‼'
+      let sline = line('$') + len(ret)
+      let scol = len(ret[-1]) + 1
       let ret = s:doRuns(ret, node['children'])
-      let ret[-1] = ret[-1].'‼'.node['attributes']['w:id'].'‼'
+      let b:insertions = b:insertions + [{'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'id': node['attributes']['w:id']}]
     elseif node['tag'] == 'w:del'
-      let ret[-1] = ret[-1].'‽'.node['attributes']['w:id'].'‽'
+      let sline = line('$') + len(ret)
+      let scol = len(ret[-1]) + 1
       let ret = s:doRuns(ret, node['children'])
-      let ret[-1] = ret[-1].'‽'.node['attributes']['w:id'].'‽'
+      let b:deletions = b:deletions + [{'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'id': node['attributes']['w:id']}]
     elseif node['tag'] == 'w:commentRangeStart'
+      let b:comments[node['attributes']['w:id']] = {'sline': line('$') + len(ret), 'scol': len(ret[-1]) + 1}
     elseif node['tag'] == 'w:commentRangeEnd'
+      let b:comments[node['attributes']['w:id']]['end_lnum'] = line('$') + len(ret)
+      let b:comments[node['attributes']['w:id']]['end_col'] = len(ret[-1]) + 1
     elseif node['tag'] == 'w:moveTo'
       let ret = s:doRuns(ret, node['children'])
     endif
