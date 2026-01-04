@@ -1,9 +1,13 @@
+fun! s:loadPart(fn, part)
+  return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(a:part).' | xsltproc xml-to-json.xsl - | sed -z "s/\n/\\n/g;s/‽/\\\\\"/g"'))
+endf
+
 fun! docx#Load()
-  let fn = expand("%:p")
+  let b:fn = expand("%:p")
 
   setlocal undolevels=-1 noswapfile
-  call docx#Read(fn) | $d | 0d
-  sil exe 'keepalt file '.fnameescape(fn)
+  call docx#Read() | $d | 0d
+  sil exe 'keepalt file '.fnameescape(b:fn)
 
   let insertions =  matchbufline("%", '‼\(\d\+\)‼\(\_.\{-}\)‼\1\+‼', 1, "$", {"submatches": v:true})
   if len(insertions) > 0
@@ -30,34 +34,28 @@ fun! docx#Load()
     %s/‾\d\+‾//g
   endif
 
+  let bufnr = bufadd('Styles')
+  call setbufvar(bufnr, 'fn', b:fn)
+  call setbufvar(bufnr, 'bufnr', bufnr)
+  exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadStyles()'
+  let bufnr = bufadd('Comments')
+  call setbufvar(bufnr, 'fn', b:fn)
+  call setbufvar(bufnr, 'bufnr', bufnr)
+  exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadComments()'
+
+  au BufReadCmd <buffer> call docx#Read()
   au BufWriteCmd <buffer> call docx#Write()
   setlocal nomod buftype=acwrite undolevels=-123456
   run! syntax/markdown.vim
 
-  if len(comments) > 0
-    40 vne
-    "let comment_text = system('unzip -p -- '.shellescape(fn).' word/comments.xml | xsltproc comments.xsl -')
-    setlocal undolevels=-1
-    sil exe 'noswapfile r !unzip -p -- '.shellescape(fn).' word/comments.xml | xsltproc comments.xsl -'
-    sil file 'Comments'
-    setlocal nomod buftype=acwrite undolevels=-123456
-    normal  h
-    let comment_rels = system('unzip -p -- '.shellescape(fn).' word/_rels/comments.xml.rels | xsltproc rels.xsl -')
-
-    let b:comment_ids = []
-    map <F6> :call ToggleComments()<CR>
-  endif
-
   normal gg
-
 endf
 
-fun! docx#Read(fn)
-  let b:docx_document = js_decode(system('unzip -p '.shellescape(a:fn).' word/document.xml | xsltproc xml-to-json.xsl - | sed -z "s/\n/\\n/g;s/‽/\\\\\"/g"'))
-  for node in filter(b:docx_document['children'][0]['children'], "v:val['tag'] == 'w:p'")
+fun! docx#Read()
+  let docx_document = s:loadPart(b:fn, 'word/document.xml')
+  for node in filter(docx_document['children'][0]['children'], "v:val['tag'] == 'w:p'")
     call s:doParagraph(node)
   endfor
-  "sil exe 'noswapfile r !unzip -p -- '.shellescape(a:fn).' word/document.xml | xsltproc document-markdown.xsl -'
 endfun
 
 fun! docx#Write()
@@ -286,43 +284,116 @@ endf
 
 fun! s:doParagraph(container)
   let start = 0
+  let lines = ['']
   if a:container['children'][0]['tag'] == 'w:pPr'
     for prop in a:container['children'][0]['children']
       if prop['tag'] == 'w:pStyle'
+        if prop['attributes']['w:val'] == 'ListParagraph'
+          let lines[-1] = '* '
+        elseif prop['attributes']['w:val'] == 'Heading1'
+          let lines[-1] = '# '
+        elseif prop['attributes']['w:val'] == 'Heading2'
+          let lines[-1] = '## '
+        elseif prop['attributes']['w:val'] == 'Heading3'
+          let lines[-1] = '### '
+        elseif prop['attributes']['w:val'] == 'Heading4'
+          let lines[-1] = '#### '
+        elseif prop['attributes']['w:val'] == 'Heading5'
+          let lines[-1] = '##### '
+        endif
       endif
     endfor
     let start = 1
   endif
-  let lines = ['
-  call s:doBob(lines, a:container['children'][start:]))
+  let lines = s:doRuns(lines, a:container['children'][start:])
   for line in lines
     call appendbufline('%', '$', line)
   endfor
+  call appendbufline('%', '$', '')
 endf
 
-fun! s:doBob(lines, container)
+fun! s:doRuns(lines, container)
+  let ret = a:lines
   for node in a:container
     if node['tag'] == 'w:r'
-      call s:doRun(a:lines, node)
+      let ret = s:doRun(ret, node)
     elseif node['tag'] == 'w:ins'
-      call s:doBob(a:lines, node['children'])
+      let ret[-1] = ret[-1].'‼'.node['attributes']['w:id'].'‼'
+      let ret = s:doRuns(ret, node['children'])
+      let ret[-1] = ret[-1].'‼'.node['attributes']['w:id'].'‼'
     elseif node['tag'] == 'w:del'
-      call s:doBob(a:lines, node['children'])
+      let ret[-1] = ret[-1].'‽'.node['attributes']['w:id'].'‽'
+      let ret = s:doRuns(ret, node['children'])
+      let ret[-1] = ret[-1].'‽'.node['attributes']['w:id'].'‽'
     elseif node['tag'] == 'w:commentRangeStart'
     elseif node['tag'] == 'w:commentRangeEnd'
     elseif node['tag'] == 'w:moveTo'
-      call s:doBob(a:lines, node['children'])
+      let ret = s:doRuns(ret, node['children'])
+    endif
+  endfor
+  return ret
+endf
+
+fun! s:doRun(lines, container)
+  let ret = a:lines
+  for t in a:container['children']
+    if t['tag'] == 'w:t'
+      let ret[-1] = ret[-1].t['innerText']
+    elseif t['tag'] == 'w:delText'
+      let ret[-1] = ret[-1].t['innerText']
+    elseif t['tag'] == 'w:br'
+      let ret[-1] = ret[-1].'  '
+      let ret = ret + ['']
+    endif
+  endfor
+  return ret
+endf
+
+fun! s:loadStyles()
+  call setbufvar(b:bufnr, '&swapfile', 0)
+  call setbufvar(b:bufnr, '&buftype', 'acwrite')
+  call setbufvar(b:bufnr, '&undolevels', -1)
+
+  let styles = s:loadPart(b:fn, 'word/styles.xml')
+  call setbufline(b:bufnr, 1, 'styles:')
+  for node in filter(styles['children'], "v:val['tag'] == 'w:style'")
+    call s:doStyle(node, b:bufnr)
+  endfor
+  call setbufvar(b:bufnr, '&mod', 0)
+  call setbufvar(b:bufnr, '&undolevels', -123456)
+endf
+
+fun! s:doStyle(node, bufnr)
+  call appendbufline(a:bufnr, '$', '  '.a:node['attributes']['w:styleId'].':')
+  call appendbufline(a:bufnr, '$', '    type: '.a:node['attributes']['w:type'])
+  call appendbufline(a:bufnr, '$', '    custom: '.a:node['attributes']->get('w:customStyle'))
+  for child in a:node['children']
+    if has_key(child['attributes'], 'w:val')
+      call appendbufline(a:bufnr, '$', '    '.child['tag'].': '.child['attributes']['w:val'])
+    else
+      call appendbufline(a:bufnr, '$', '    '.child['tag'].':')
+      for subchild in child['children']
+        if has_key(subchild['attributes'], 'w:val')
+          call appendbufline(a:bufnr, '$', '      '.subchild['tag'].': '.subchild['attributes']['w:val'])
+        endif
+      endfor
     endif
   endfor
 endf
 
-fun! s:doRun(lines, container)
-  for t in a:container['children']
-    if t['tag'] == 'w:t'
-      let lines[-1] = text.t['innerText']
-    elseif t['tag'] == 'w:br'
-      let text = text."\r\n"
-    endif
+fun! s:loadComments()
+  call setbufvar(b:bufnr, '&swapfile', 0)
+  call setbufvar(b:bufnr, '&buftype', 'acwrite')
+  call setbufvar(b:bufnr, '&undolevels', -1)
+
+  let comments = s:loadPart(b:fn, 'word/comments.xml')
+  call setbufline(b:bufnr, 1, 'comments:')
+  for node in filter(comments['children'], "v:val['tag'] == 'w:comment'")
+    call s:doComment(node, b:bufnr)
   endfor
-  return text
+  call setbufvar(b:bufnr, '&mod', 0)
+  call setbufvar(b:bufnr, '&undolevels', -123456)
+endf
+
+fun! s:doComment(node, bufnr)
 endf
