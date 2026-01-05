@@ -1,9 +1,15 @@
+fun! s:listParts(fn)
+  return system('unzip -qql '.shellescape(a:fn)." | awk -F' ' '{print $4;}'")
+endf
+
 fun! s:loadPart(fn, part)
-  return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(a:part).' | xsltproc xml-to-json.xsl - | sed -z "s/\n/\\n/g;s/‽/\\\\\"/g"'))
+  return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(a:part).' | xsltproc '.expand('<script>:h:h').'/xml-to-json.xsl - | sed -z "s/\n/\\n/g;s/‽/\\\\\"/g"'))
 endf
 
 fun! docx#Load()
   let b:fn = expand("%:p")
+
+  let b:parts = s:listParts(b:fn)
 
   setlocal undolevels=-1 noswapfile
   call docx#Read() | $d | 0d
@@ -13,10 +19,13 @@ fun! docx#Load()
   call setbufvar(bufnr, 'fn', b:fn)
   call setbufvar(bufnr, 'bufnr', bufnr)
   exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadStyles()'
-  let bufnr = bufadd('Comments')
-  call setbufvar(bufnr, 'fn', b:fn)
-  call setbufvar(bufnr, 'bufnr', bufnr)
-  exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadComments()'
+
+  if match(b:parts, 'word/comments.xml') >= 0
+    let bufnr = bufadd('Comments')
+    call setbufvar(bufnr, 'fn', b:fn)
+    call setbufvar(bufnr, 'bufnr', bufnr)
+    exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadComments()'
+  endif
 
   au BufReadCmd <buffer> call docx#Read()
   au BufWriteCmd <buffer> call docx#Write()
@@ -384,11 +393,14 @@ fun! s:loadComments()
   let comments = s:loadPart(b:fn, 'word/comments.xml')
   call setbufline(b:bufnr, 1, 'comments:')
   for node in filter(comments['children'], "v:val['tag'] == 'w:comment'")
-    call s:doComment(node, b:bufnr)
+    call s:doComment(node)
   endfor
   call setbufvar(b:bufnr, '&mod', 0)
   call setbufvar(b:bufnr, '&undolevels', -123456)
 endf
 
-fun! s:doComment(node, bufnr)
+fun! s:doComment(node)
+  for node in a:node['children']
+    call s:doParagraph(node)
+  endfor
 endf
