@@ -43,8 +43,12 @@ fun! docx#Read()
   let b:insertions = []
   let b:deletions = []
   let b:comments = {}
-  for node in filter(docx_document['children'][0]['children'], "v:val['tag'] == 'w:p'")
-    call s:doParagraph(node)
+  for node in docx_document['children'][0]['children']
+    if node['tag'] == 'w:p'
+      call s:doParagraph(node)
+    elseif node['tag'] == 'w:tbl'
+      call s:doTable(node)
+    endif
   endfor
   for ins in b:insertions
     call prop_add(ins['sline'], ins['scol'], {'end_lnum': ins['end_lnum'], 'end_col': ins['end_col'], 'type': 'insertion', 'id': ins['id']})
@@ -281,10 +285,12 @@ fun! ToggleComments()
   endif
 endf
 
-fun! s:doParagraph(container)
+fun! s:doParagraph(container, isTable = v:false)
   let start = 0
   let lines = ['']
-  if a:container['children'][0]['tag'] == 'w:pPr'
+  if len(a:container['children']) == 0
+    return
+  elseif a:container['children'][0]['tag'] == 'w:pPr'
     for prop in a:container['children'][0]['children']
       if prop['tag'] == 'w:pStyle'
         if prop['attributes']['w:val'] == 'ListParagraph'
@@ -306,9 +312,35 @@ fun! s:doParagraph(container)
   endif
   let lines = s:doRuns(lines, a:container['children'][start:])
   for line in lines
-    call appendbufline('%', '$', line)
+    if a:isTable
+      call appendbufline('%', '$', '| '.line.' |')
+    else
+      call appendbufline('%', '$', line)
+    endif
   endfor
   call appendbufline('%', '$', '')
+endf
+
+fun! s:doTable(container)
+  call appendbufline('%', '$', '| | |')
+  call appendbufline('%', '$', '| - | - |')
+  for node in a:container['children']
+    if node['tag'] == 'w:tr'
+      call s:doTableRow(node)
+    endif
+  endfor
+endf
+
+fun! s:doTableRow(container)
+  for node in a:container['children']
+    if node['tag'] == 'w:tr'
+      call s:doTableRow(node)
+    elseif node['tag'] == 'w:tc'
+      for child in filter(node['children'], "v:val['tag'] == 'w:p'")
+        call s:doParagraph(child, v:true)
+      endfor
+    endif
+  endfor
 endf
 
 fun! s:doRuns(lines, container)
