@@ -368,8 +368,20 @@ endf
 
 fun! s:doRun(lines, container)
   let ret = a:lines
+  let bold = v:false
+  let italic = v:false
   for t in a:container['children']
-    if t['tag'] == 'w:t'
+    if t['tag'] == 'w:rPr'
+      for prop in t['children']
+        if prop['tag'] == 'w:b'
+          let bold = v:true
+          let ret[-1] = ret[-1].'**'
+        elseif prop['tag'] == 'w:i'
+          let italic = v:true
+          let ret[-1] = ret[-1].'*'
+        endif
+      endfor
+    elseif t['tag'] == 'w:t'
       let ret[-1] = ret[-1].t['innerText']
     elseif t['tag'] == 'w:delText'
       let ret[-1] = ret[-1].t['innerText']
@@ -378,6 +390,12 @@ fun! s:doRun(lines, container)
       let ret = ret + ['']
     endif
   endfor
+  if bold
+    let ret[-1] = ret[-1].'**'
+  endif
+  if italic
+    let ret[-1] = ret[-1].'*'
+  endif
   return ret
 endf
 
