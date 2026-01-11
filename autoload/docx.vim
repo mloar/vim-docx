@@ -155,6 +155,15 @@ fun! docx#Write()
             \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading1'}, 'children': []}
             \ ]
       let text = text[2:]
+    elseif match(text, '#(.\{-})') == 0
+      if !s:isEmptyParagraph(body)
+        let body['children'] = body['children'] + [s:makeParagraph()]
+      endif
+      let style = text[2:match(text, ')') - 1]
+      let body['children'][-1]['children'][0]['children'] = [
+            \ {'tag': 'w:pStyle', 'attributes': {'w:val': style}, 'children': []}
+            \ ]
+      let text = text[len(style) + 4:]
     elseif match(text, '* ') == 0
       if !s:isEmptyParagraph(body)
         let body['children'] = body['children'] + [s:makeParagraph()]
@@ -306,6 +315,8 @@ fun! s:doParagraph(container)
           let lines[-1] = '#### '
         elseif prop['attributes']['w:val'] == 'Heading5'
           let lines[-1] = '##### '
+        else
+          let lines[-1] = '#('.prop['attributes']['w:val'].') '
         endif
       endif
     endfor
