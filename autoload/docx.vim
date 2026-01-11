@@ -7,23 +7,21 @@ fun! s:loadPart(fn, part)
 endf
 
 fun! docx#Load()
-  let b:fn = expand("%:p")
+  let fn = expand("%:p")
 
-  let b:parts = s:listParts(b:fn)
+  let b:parts = s:listParts(fn)
 
   setlocal undolevels=-1 noswapfile
   call docx#Read() | $d | 0d
-  sil exe 'keepalt file '.fnameescape(b:fn)
+  sil exe 'keepalt file '.fnameescape(fn)
 
   let bufnr = bufadd('Styles')
-  call setbufvar(bufnr, 'fn', b:fn)
-  call setbufvar(bufnr, 'bufnr', bufnr)
+  call setbufvar(bufnr, 'fn', fn)
   exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadStyles()'
 
   if match(b:parts, 'word/comments.xml') >= 0
     let bufnr = bufadd('Comments')
-    call setbufvar(bufnr, 'fn', b:fn)
-    call setbufvar(bufnr, 'bufnr', bufnr)
+    call setbufvar(bufnr, 'fn', fn)
     exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadComments()'
   endif
 
@@ -36,7 +34,7 @@ fun! docx#Load()
 endf
 
 fun! docx#Read()
-  let docx_document = s:loadPart(b:fn, 'word/document.xml')
+  let docx_document = s:loadPart(expand('%'), 'word/document.xml')
   call prop_type_add('insertion', {'highlight': 'DiffAdd'})
   call prop_type_add('deletion', {'highlight': 'DiffDelete'})
   call prop_type_add('comment', {'highlight': 'Underlined'})
@@ -386,31 +384,28 @@ fun! s:doRun(lines, container)
 endf
 
 fun! s:loadStyles()
-  call setbufvar(b:bufnr, '&swapfile', 0)
-  call setbufvar(b:bufnr, '&buftype', 'acwrite')
-  call setbufvar(b:bufnr, '&undolevels', -1)
+  set noswapfile buftype=acwrite undolevels=-1
 
   let styles = s:loadPart(b:fn, 'word/styles.xml')
-  call setbufline(b:bufnr, 1, 'styles:')
+  call setbufline('%', 1, 'styles:')
   for node in filter(styles['children'], "v:val['tag'] == 'w:style'")
-    call s:doStyle(node, b:bufnr)
+    call s:doStyle(node)
   endfor
-  call setbufvar(b:bufnr, '&mod', 0)
-  call setbufvar(b:bufnr, '&undolevels', -123456)
+  set nomod undolevels=-123456
 endf
 
-fun! s:doStyle(node, bufnr)
-  call appendbufline(a:bufnr, '$', '  '.a:node['attributes']['w:styleId'].':')
-  call appendbufline(a:bufnr, '$', '    type: '.a:node['attributes']['w:type'])
-  call appendbufline(a:bufnr, '$', '    custom: '.a:node['attributes']->get('w:customStyle'))
+fun! s:doStyle(node)
+  call appendbufline('%', '$', '  '.a:node['attributes']['w:styleId'].':')
+  call appendbufline('%', '$', '    type: '.a:node['attributes']['w:type'])
+  call appendbufline('%', '$', '    custom: '.a:node['attributes']->get('w:customStyle'))
   for child in a:node['children']
     if has_key(child['attributes'], 'w:val')
-      call appendbufline(a:bufnr, '$', '    '.child['tag'].': '.child['attributes']['w:val'])
+      call appendbufline('%', '$', '    '.child['tag'].': '.child['attributes']['w:val'])
     else
-      call appendbufline(a:bufnr, '$', '    '.child['tag'].':')
+      call appendbufline('%', '$', '    '.child['tag'].':')
       for subchild in child['children']
         if has_key(subchild['attributes'], 'w:val')
-          call appendbufline(a:bufnr, '$', '      '.subchild['tag'].': '.subchild['attributes']['w:val'])
+          call appendbufline('%', '$', '      '.subchild['tag'].': '.subchild['attributes']['w:val'])
         endif
       endfor
     endif
@@ -418,17 +413,14 @@ fun! s:doStyle(node, bufnr)
 endf
 
 fun! s:loadComments()
-  call setbufvar(b:bufnr, '&swapfile', 0)
-  call setbufvar(b:bufnr, '&buftype', 'acwrite')
-  call setbufvar(b:bufnr, '&undolevels', -1)
+  set noswapfile buftype=acwrite undolevels=-1
 
   let comments = s:loadPart(b:fn, 'word/comments.xml')
-  call setbufline(b:bufnr, 1, 'comments:')
+  call setbufline('%', 1, 'comments:')
   for node in filter(comments['children'], "v:val['tag'] == 'w:comment'")
     call s:doComment(node)
   endfor
-  call setbufvar(b:bufnr, '&mod', 0)
-  call setbufvar(b:bufnr, '&undolevels', -123456)
+  set nomod undolevels=-123456
 endf
 
 fun! s:doComment(node)
