@@ -43,7 +43,10 @@ fun! docx#Read()
   let b:comments = {}
   for node in docx_document['children'][0]['children']
     if node['tag'] == 'w:p'
-      call s:doParagraph(node)
+      for line in s:doParagraph(node)
+        call appendbufline('%', '$', line)
+      endfor
+      call appendbufline('%', '$', '')
     elseif node['tag'] == 'w:tbl'
       call s:doTable(node)
     endif
@@ -283,7 +286,7 @@ fun! ToggleComments()
   endif
 endf
 
-fun! s:doParagraph(container, isTable = v:false)
+fun! s:doParagraph(container)
   let start = 0
   let lines = ['']
   if len(a:container['children']) == 0
@@ -308,15 +311,7 @@ fun! s:doParagraph(container, isTable = v:false)
     endfor
     let start = 1
   endif
-  let lines = s:doRuns(lines, a:container['children'][start:])
-  for line in lines
-    if a:isTable
-      call appendbufline('%', '$', '| '.line.' |')
-    else
-      call appendbufline('%', '$', line)
-    endif
-  endfor
-  call appendbufline('%', '$', '')
+  return s:doRuns(lines, a:container['children'][start:])
 endf
 
 fun! s:doTable(container)
@@ -335,7 +330,10 @@ fun! s:doTableRow(container)
       call s:doTableRow(node)
     elseif node['tag'] == 'w:tc'
       for child in filter(node['children'], "v:val['tag'] == 'w:p'")
-        call s:doParagraph(child, v:true)
+        for line in s:doParagraph(child)
+          call appendbufline('%', '$', line)
+        endfor
+        call appendbufline('%', '$', '')
       endfor
     endif
   endfor
@@ -424,7 +422,11 @@ fun! s:loadComments()
 endf
 
 fun! s:doComment(node)
+  call appendbufline('%', '$', '  '.a:node['attributes']['w:id'].':')
   for node in a:node['children']
-    call s:doParagraph(node)
+    for line in s:doParagraph(node)
+      call appendbufline('%', '$', '    '.line)
+    endfor
+    call appendbufline('%', '$', '')
   endfor
 endf
