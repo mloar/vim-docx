@@ -23,6 +23,7 @@ fun! docx#Load()
     let bufnr = bufadd('Comments')
     call setbufvar(bufnr, 'fn', fn)
     exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadComments()'
+    map <F6> :40vs Comments<CR>
   endif
 
   au BufReadCmd <buffer> call docx#Read()
@@ -37,7 +38,8 @@ fun! docx#Read()
   let docx_document = s:loadPart(expand('%'), 'word/document.xml')
   call prop_type_add('insertion', {'highlight': 'DiffAdd'})
   call prop_type_add('deletion', {'highlight': 'DiffDelete'})
-  call prop_type_add('comment', {'highlight': 'Underlined'})
+  call prop_type_add('comment', {})
+  call prop_type_add('current-comment', {'highlight': 'Underlined'})
   let b:insertions = []
   let b:deletions = []
   let b:comments = {}
@@ -447,7 +449,36 @@ fun! s:loadComments()
   for node in filter(comments['children'], "v:val['tag'] == 'w:comment'")
     call s:doComment(node)
   endfor
+  au CursorMoved <buffer> call s:hiliteComment()
   set nomod undolevels=-123456
+endf
+
+fun! s:hiliteComment()
+  call prop_remove(#{bufnr: 1, type: 'current-comment', all: v:true})
+  let line = getcurpos()[1]
+  while line > 0
+    let matches = matchlist(getbufoneline('%', line), '  \(\d\+\)')
+    if len(matches) > 0
+      let start = prop_find(#{id: matches[1], type: 'comment', bufnr: 1, both: v:true, lnum: 1, col: 1})
+      if start['end'] == v:false
+        let line = start['lnum']
+        let end = []
+        while len(end) == 0
+          let line = line + 1
+          let end = filter(prop_list(line, #{bufnr: 1, id: matches[1], type: 'comment'}), "v:val['end'] == v:true && v:val['type'] == 'comment' && v:val['id'] == ".matches[1])
+        endwhile
+        let props = [start['lnum'], start['col'], line, end[0]['length'] + 1]
+      else
+        let props = [start['lnum'], start['col'], start['lnum'], start['col'] + start['length']]
+      endif
+      call prop_add_list(#{bufnr: 1, id: matches[1], type: 'current-comment'}, [props])
+      call win_execute(1000, 'normal '.start['lnum'].'G')
+
+      break
+    else
+      let line = line - 1
+    endif
+  endwhile
 endf
 
 fun! s:doComment(node)
