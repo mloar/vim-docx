@@ -24,6 +24,7 @@ fun! docx#Load()
     call setbufvar(bufnr, 'fn', fn)
     exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadComments()'
     map <F6> :40vs Comments<CR>
+    map <F7> :call docx#MakeComment()<CR>
   endif
 
   au BufReadCmd <buffer> call docx#Read()
@@ -40,9 +41,7 @@ fun! docx#Read()
   call prop_type_add('deletion', {'highlight': 'DiffDelete'})
   call prop_type_add('comment', {})
   call prop_type_add('current-comment', {'highlight': 'Underlined'})
-  let b:insertions = []
-  let b:deletions = []
-  let b:comments = {}
+  let b:modifications = {}
   for node in docx_document['children'][0]['children']
     if node['tag'] == 'w:p'
       for line in s:doParagraph(node)
@@ -53,14 +52,8 @@ fun! docx#Read()
       call s:doTable(node)
     endif
   endfor
-  for ins in b:insertions
-    call prop_add(ins['sline'], ins['scol'], {'end_lnum': ins['end_lnum'], 'end_col': ins['end_col'], 'type': 'insertion', 'id': ins['id']})
-  endfor
-  for del in b:deletions
-    call prop_add(del['sline'], del['scol'], {'end_lnum': del['end_lnum'], 'end_col': del['end_col'], 'type': 'deletion', 'id': del['id']})
-  endfor
-  for [key, comment] in items(b:comments)
-    call prop_add(comment['sline'], comment['scol'], {'end_lnum': comment['end_lnum'], 'end_col': comment['end_col'], 'type': 'comment', 'id': key})
+  for [key, mod] in items(b:modifications)
+    call prop_add(mod['sline'], mod['scol'], {'end_lnum': mod['end_lnum'], 'end_col': mod['end_col'], 'type': mod['type'], 'id': key})
   endfor
 endfun
 
@@ -361,17 +354,17 @@ fun! s:doRuns(lines, container)
       let sline = line('$') + len(ret)
       let scol = len(ret[-1]) + 1
       let ret = s:doRuns(ret, node['children'])
-      let b:insertions = b:insertions + [{'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'id': node['attributes']['w:id']}]
+      let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'type': 'insertion'}
     elseif node['tag'] == 'w:del'
       let sline = line('$') + len(ret)
       let scol = len(ret[-1]) + 1
       let ret = s:doRuns(ret, node['children'])
-      let b:deletions = b:deletions + [{'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'id': node['attributes']['w:id']}]
+      let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'type': 'deletion'}
     elseif node['tag'] == 'w:commentRangeStart'
-      let b:comments[node['attributes']['w:id']] = {'sline': line('$') + len(ret), 'scol': len(ret[-1]) + 1}
+      let b:modifications[node['attributes']['w:id']] = {'sline': line('$') + len(ret), 'scol': len(ret[-1]) + 1, 'type': 'comment'}
     elseif node['tag'] == 'w:commentRangeEnd'
-      let b:comments[node['attributes']['w:id']]['end_lnum'] = line('$') + len(ret)
-      let b:comments[node['attributes']['w:id']]['end_col'] = len(ret[-1]) + 1
+      let b:modifications[node['attributes']['w:id']]['end_lnum'] = line('$') + len(ret)
+      let b:modifications[node['attributes']['w:id']]['end_col'] = len(ret[-1]) + 1
     elseif node['tag'] == 'w:moveTo'
       let ret = s:doRuns(ret, node['children'])
     endif
@@ -489,4 +482,25 @@ fun! s:doComment(node)
     endfor
     call appendbufline('%', '$', '')
   endfor
+endf
+
+fun! docx#MakeComment()
+  let [line_start, column_start] = getpos("'<")[1:2]
+  let [line_end, column_end] = getpos("'>")[1:2]
+  let column_end = column_end + (&selection ==# 'inclusive' ? 1 : 0)
+  if (line2byte(line_start) + column_start) > (line2byte(line_end) + column_end)
+    let [line_start, column_start, line_end, column_end] = [line_end, column_end, line_start, column_start]
+  endif
+  let ids = sort(keys(b:modifications), 'N')
+  let id = ids[-1] + 1
+  let b:modifications[id] = {'sline': line_start, 'scol': column_start, 'end_lnum': line_end, 'end_col': column_end, 'type': 'comment'}
+  call prop_add(line_start, column_start, {'end_lnum': line_end, 'end_col': column_end, 'type': 'comment', 'id': id})
+  let buffy = bufnr('Comments')
+  call bufload(buffy)
+  call appendbufline(buffy, '$', '  '.id.':')
+  call appendbufline(buffy, '$', '    ')
+  if len(win_findbuf(buffy)) == 0
+    40 vs Comments
+    normal G
+  endif
 endf
