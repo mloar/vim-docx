@@ -125,7 +125,7 @@ endf
 fun! s:writeBody(start, end)
   let body = {'tag': 'w:body', 'attributes': {}, 'children': []}
   for line in range(a:start, a:end)
-    let body = s:writeParagraph(body, line)
+    let body = s:writeParagraph(body, getline(line))
   endfor
   if s:isEmptyParagraph(body)
     unlet body['children'][-1]
@@ -165,8 +165,8 @@ fun! s:addParagraph(body, style = v:none)
   endif
 endf
 
-fun! s:writeParagraph(body, line)
-  let text = getline(a:line)
+fun! s:writeParagraph(body, text)
+  let text = a:text
   let body = a:body
   if match(text, '\s*#\+ ') == 0
     let matches = matchlist(text, '\s*\(#\+\) \(.*\)')
@@ -184,13 +184,13 @@ fun! s:writeParagraph(body, line)
     let body['children'] = s:addParagraph(body)
   else
     let last_pos = 0
-    let matches =  matchbufline('%', '\*\*\?\*\?\([^*]\{-1,}\)\*\*\?\*\?', a:line, a:line, {'submatches': v:true})
+    let matches =  matchstrlist([text], '\*\*\?\*\?\([^*]\{-1,}\)\*\*\?\*\?', {'submatches': v:true})
     if len(matches) > 0
       for thing in matches
         if last_pos < thing['byteidx']
           let body['children'][-1]['children'] = body['children'][-1]['children'] + [
                 \ {'tag': 'w:r', 'attributes': {}, 'children': [
-                \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': getline(a:line)[last_pos:thing['byteidx']-1] }
+                \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': text[last_pos:thing['byteidx']-1] }
                 \ ]}
                 \ ]
         endif
@@ -272,14 +272,15 @@ fun! s:isEmptyParagraph(body)
 endf
 
 fun! ToggleComments()
-  if len(b:comment_ids) > 0
-    for id in b:comment_ids
+  let comment_ids = get(b:, 'comment_ids', [])
+  if len(comment_ids) > 0
+    for id in comment_ids
       call popup_close(id)
     endfor
   else
     let b:comment_ids = []
-    for comment in b:comments
-      let b:comment_ids = b:comment_ids + [popup_create(comment['submatches'][0], #{ pos: 'botleft', textprop: 'comment', textpropid: comment['submatches'][0], border: [], padding: [0,1,0,1], close: 'click'})]
+    for [key, comment] in filter(items(b:modifications), "v:val[1]['type'] == 'comment'")
+      let b:comment_ids = b:comment_ids + [popup_create(key, #{ pos: 'botleft', textprop: 'comment', textpropid: key, border: [], padding: [0,1,0,1], close: 'click'})]
         endfor
   endif
 endf
@@ -437,6 +438,7 @@ fun! s:loadComments()
     call s:readComment(node)
   endfor
   au CursorMoved <buffer> call s:hiliteComment()
+  au BufLeave <buffer> call prop_remove(#{bufnr: 1, type: 'current-comment', all: v:true})
   set nomod undolevels=-123456
 endf
 
@@ -484,17 +486,16 @@ fun! s:writeComments()
     for line2 in range(line + 1, line('$'))
       let text = getline(line2)
       if match(text, '  \d\+:') >= 0
+        let line2 = line2 - 1
         break
       endif
     endfor
-    if line2 == line('$')
-      break
-    endif
+    let text = getline(line)
     let matches = matchlist(text, '  \(\d\+\):')
     let comment = {'tag': 'w:comment', 'attributes': {
           \ 'w:id': matches[1],
           \ }, 'children': []}
-    for content in range(line, line2 - 1)
+    for content in range(line, line2)
       let matches = matchlist(getline(content), '    \(\a\+\): \(.*\)')
       if len(matches) > 0
         let comment['attributes']['w:'.matches[1]] = matches[2]
@@ -503,25 +504,29 @@ fun! s:writeComments()
         break
       endif
     endfor
-    for para in range(content, line2 - 1)
-      let comment = s:writeParagraph(comment, para)
+    for para in range(content, line2)
+      let comment = s:writeParagraph(comment, getline(para))
     endfor
     if s:isEmptyParagraph(comment)
       unlet comment['children'][-1]
     endif
     let comments['children'] = comments['children'] + [comment]
-    let line = line2
+    let line = line2 + 1
   endwhile
   call s:writePart(b:fn, 'comments', comments)
 endf
 
 fun! s:hiliteComment()
   call prop_remove(#{bufnr: 1, type: 'current-comment', all: v:true})
-  let line = getcurpos()[1]
+  let line = line('.')
   while line > 0
-    let matches = matchlist(getbufoneline('%', line), '  \(\d\+\)')
+    let matches = matchlist(getline(line), '^  \(\d\+\):$')
     if len(matches) > 0
+      echo matches[1]
       let start = prop_find(#{id: matches[1], type: 'comment', bufnr: 1, both: v:true, lnum: 1, col: 1})
+      if empty(start)
+        return
+      endif
       if start['end'] == v:false
         let line = start['lnum']
         let end = []
@@ -568,12 +573,17 @@ fun! docx#MakeComment()
   let id = ids[-1] + 1
   let b:modifications[id] = {'sline': line_start, 'scol': column_start, 'end_lnum': line_end, 'end_col': column_end, 'type': 'comment'}
   call prop_add(line_start, column_start, {'end_lnum': line_end, 'end_col': column_end, 'type': 'comment', 'id': id})
+  set mod
   let buffy = bufnr('Comments')
   call bufload(buffy)
   call appendbufline(buffy, '$', '  '.id.':')
-  call appendbufline(buffy, '$', '    ')
+  call appendbufline(buffy, '$', '    author: '.get(g:, 'docx_author', 'Vim User'))
+  call appendbufline(buffy, '$', '    date: '.strftime('%Y-%m-%dT%H:%M:00Z'))
+  call appendbufline(buffy, '$', '    initials: '.get(g:, 'docx_initials', 'VU'))
+  call appendbufline(buffy, '$', '    content:')
+  call appendbufline(buffy, '$', '      #(CommentText) ')
   if len(win_findbuf(buffy)) == 0
     40 vs Comments
-    normal G
+    normal G$
   endif
 endf
