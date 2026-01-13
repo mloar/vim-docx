@@ -534,7 +534,7 @@ fun! s:hiliteComment()
         let props = [start['lnum'], start['col'], start['lnum'], start['col'] + start['length']]
       endif
       call prop_add_list(#{bufnr: 1, id: matches[1], type: 'current-comment'}, [props])
-      call win_execute(1000, 'normal '.start['lnum'].'G')
+      call win_execute(bufwinid(1), 'normal '.start['lnum'].'G')
 
       break
     else
