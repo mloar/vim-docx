@@ -125,137 +125,134 @@ endf
 fun! s:writeBody(start, end)
   let body = {'tag': 'w:body', 'attributes': {}, 'children': []}
   for line in range(a:start, a:end)
-    let text = getline(line)
-    if match(text, '##### ') == 0
-      if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
-      endif
-      let body['children'][-1]['children'] = [
-            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
-            \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading5'}, 'children': []}
-            \ ]}] + body['children'][-1]['children']
-      let text = text[6:]
-    elseif match(text, '#### ') == 0
-      if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
-      endif
-      let body['children'][-1]['children'] = [
-            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
-            \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading4'}, 'children': []}
-            \ ]}] + body['children'][-1]['children']
-      let text = text[5:]
-    elseif match(text, '### ') == 0
-      if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
-      endif
-      let body['children'][-1]['children'] = [
-            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
-            \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading3'}, 'children': []}
-            \ ]}] + body['children'][-1]['children']
-      let text = text[4:]
-    elseif match(text, '## ') == 0
-      if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
-      endif
-      let body['children'][-1]['children'] = [
-            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
-            \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading2'}, 'children': []}
-            \ ]}] + body['children'][-1]['children']
-      let text = text[3:]
-    elseif match(text, '# ') == 0
-      if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
-      endif
-      let body['children'][-1]['children'] = [
-            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
-            \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading1'}, 'children': []}
-            \ ]}] + body['children'][-1]['children']
-      let text = text[2:]
-    elseif match(text, '#(.\{-})') == 0
-      if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
-      endif
-      let style = text[2:match(text, ')') - 1]
-      let body['children'][-1]['children'][0]['children'] = [
-            \ {'tag': 'w:pStyle', 'attributes': {'w:val': style}, 'children': []}
-            \ ]
-      let text = text[len(style) + 4:]
-    elseif match(text, '* ') == 0
-      if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
-      endif
-      let body['children'][-1]['children'] = [
-            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
-            \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'ListParagraph'}, 'children': []}
-            \ ]}] + body['children'][-1]['children']
-      let text = text[2:]
-    endif
-    if text == ''
-      let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
-    else
-      let last_pos = 0
-      let matches =  matchbufline('%', '\*\*\?\*\?\([^*]\{-1,}\)\*\*\?\*\?', line, line, {'submatches': v:true})
-      if len(matches) > 0
-        for thing in matches
-          if last_pos < thing['byteidx']
-            let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-                  \ {'tag': 'w:r', 'attributes': {}, 'children': [
-                  \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': getline(line)[last_pos:thing['byteidx']-1] }
-                  \ ]}
-                  \ ]
-          endif
-          let last_pos = thing['byteidx'] + len(thing['text'])
-          if match(thing['text'], '\*\*\*') >= 0
-            let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-                  \ {'tag': 'w:r', 'attributes': {}, 'children': [
-                  \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
-                  \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
-                  \ {'tag': 'w:i', 'attributes': {}, 'children': [] }
-                  \ ]},
-                  \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
-                  \ ]}
-                  \ ]
-          elseif match(thing['text'], '\*\*') >= 0
-            let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-                  \ {'tag': 'w:r', 'attributes': {}, 'children': [
-                  \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
-                  \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
-                  \ ]},
-                  \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
-                  \ ]}
-                  \ ]
-          elseif match(thing['text'], '\*') >= 0
-            let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-                  \ {'tag': 'w:r', 'attributes': {}, 'children': [
-                  \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
-                  \ {'tag': 'w:i', 'attributes': {}, 'children': [] },
-                  \ ]},
-                  \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
-                  \ ]}
-                  \ ]
-          endif
-        endfor
-        let text = text[last_pos:]
-      endif
-      if match(text, '  $') >= 0
-        let text = substitute(text, ' *$', '', '')
-        let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-              \ {'tag': 'w:r', 'attributes': {}, 'children': [
-              \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': text },
-              \ {'tag': 'w:br', 'attributes': {}, 'children': [] }
-              \ ]}
-              \ ]
-      elseif len(text) > 0
-        let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-              \ {'tag': 'w:r', 'attributes': {}, 'children': [
-              \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': text }
-              \ ]}
-              \ ]
-      endif
-    endif
+    let body = s:writeParagraph(body, line)
   endfor
   if s:isEmptyParagraph(body)
     unlet body['children'][-1]
+  endif
+  return body
+endf
+
+fun! s:setStyle(body, style)
+    return a:body['children'][-1]['children'] = [
+          \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
+          \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading5'}, 'children': []}
+          \ ]}] + body['children'][-1]['children']
+endf
+
+fun! s:addParagraph(body, style = v:none)
+  if s:isEmptyParagraph(a:body)
+    if a:style isnot v:none
+      let children = a:body['children']
+      let children[-1]['children'] = [
+          \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
+          \ {'tag': 'w:pStyle', 'attributes': {'w:val': a:style}, 'children': []}
+          \ ]}] + children[-1]['children']
+      return children
+    else
+      return a:body['children']
+    endif
+  endif
+
+  if a:style is v:none
+    return a:body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
+  else
+    return a:body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': [
+          \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
+          \ {'tag': 'w:pStyle', 'attributes': {'w:val': a:style}, 'children': []}
+          \ ]}
+          \ ]}]
+  endif
+endf
+
+fun! s:writeParagraph(body, line)
+  let text = getline(a:line)
+  let body = a:body
+  if match(text, '##### ') == 0
+    let body['children'] = s:addParagraph(body, 'Heading5')
+    let text = text[6:]
+  elseif match(text, '#### ') == 0
+    let body['children'] = s:addParagraph(body, 'Heading4')
+    let text = text[5:]
+  elseif match(text, '### ') == 0
+    let body['children'] = s:addParagraph(body, 'Heading3')
+    let text = text[4:]
+  elseif match(text, '## ') == 0
+    let body['children'] = s:addParagraph(body, 'Heading2')
+    let text = text[3:]
+  elseif match(text, '# ') == 0
+    let body['children'] = s:addParagraph(body, 'Heading1')
+    let text = text[2:]
+  elseif match(text, '#(.\{-})') == 0
+    let style = text[2:match(text, ')') - 1]
+    let body['children'] = s:addParagraph(body, style)
+    let text = text[len(style) + 4:]
+  elseif match(text, '* ') == 0
+    let body['children'] = s:addParagraph(body, 'ListParagraph')
+    let text = text[2:]
+  endif
+  if text == ''
+    let body['children'] = s:addParagraph(body)
+  else
+    let last_pos = 0
+    let matches =  matchbufline('%', '\*\*\?\*\?\([^*]\{-1,}\)\*\*\?\*\?', a:line, a:line, {'submatches': v:true})
+    if len(matches) > 0
+      for thing in matches
+        if last_pos < thing['byteidx']
+          let body['children'][-1]['children'] = body['children'][-1]['children'] + [
+                \ {'tag': 'w:r', 'attributes': {}, 'children': [
+                \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': getline(a:line)[last_pos:thing['byteidx']-1] }
+                \ ]}
+                \ ]
+        endif
+        let last_pos = thing['byteidx'] + len(thing['text'])
+        if match(thing['text'], '\*\*\*') >= 0
+          let body['children'][-1]['children'] = body['children'][-1]['children'] + [
+                \ {'tag': 'w:r', 'attributes': {}, 'children': [
+                \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
+                \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
+                \ {'tag': 'w:i', 'attributes': {}, 'children': [] }
+                \ ]},
+                \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
+                \ ]}
+                \ ]
+        elseif match(thing['text'], '\*\*') >= 0
+          let body['children'][-1]['children'] = body['children'][-1]['children'] + [
+                \ {'tag': 'w:r', 'attributes': {}, 'children': [
+                \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
+                \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
+                \ ]},
+                \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
+                \ ]}
+                \ ]
+        elseif match(thing['text'], '\*') >= 0
+          let body['children'][-1]['children'] = body['children'][-1]['children'] + [
+                \ {'tag': 'w:r', 'attributes': {}, 'children': [
+                \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
+                \ {'tag': 'w:i', 'attributes': {}, 'children': [] },
+                \ ]},
+                \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
+                \ ]}
+                \ ]
+        endif
+      endfor
+      let text = text[last_pos:]
+    endif
+    if match(text, '  $') >= 0
+      let text = substitute(text, ' *$', '', '')
+      let body['children'][-1]['children'] = body['children'][-1]['children'] + [
+            \ {'tag': 'w:r', 'attributes': {}, 'children': [
+            \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': text },
+            \ {'tag': 'w:br', 'attributes': {}, 'children': [] }
+            \ ]}
+            \ ]
+    elseif len(text) > 0
+      let body['children'][-1]['children'] = body['children'][-1]['children'] + [
+            \ {'tag': 'w:r', 'attributes': {}, 'children': [
+            \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': text }
+            \ ]}
+            \ ]
+    endif
   endif
   return body
 endf
@@ -282,7 +279,7 @@ fun! s:doElement(elem)
 endf
 
 fun! s:isEmptyParagraph(body)
-  return len(a:body['children']) > 0 && a:body['children'][-1]['tag'] == 'w:p' && len(a:body['children'][-1]['children']) == 1 && len(a:body['children'][-1]['children'][0]['children']) == 0
+  return len(a:body['children']) > 0 && a:body['children'][-1]['tag'] == 'w:p' && len(a:body['children'][-1]['children']) == 0
 endf
 
 fun! ToggleComments()
