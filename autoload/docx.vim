@@ -294,7 +294,7 @@ fun! s:doParagraph(container)
   let start = 0
   let lines = ['']
   if len(a:container['children']) == 0
-    return
+    return []
   elseif a:container['children'][0]['tag'] == 'w:pPr'
     for prop in a:container['children'][0]['children']
       if prop['tag'] == 'w:pStyle'
