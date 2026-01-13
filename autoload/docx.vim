@@ -23,6 +23,7 @@ fun! docx#Load()
     let bufnr = bufadd('Comments')
     call setbufvar(bufnr, 'fn', fn)
     exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadComments()'
+    exe 'au BufWriteCmd <buffer='.bufnr.'> call s:writeComments()'
     map <F6> :40vs Comments<CR>
     map <F7> :call docx#MakeComment()<CR>
   endif
@@ -44,7 +45,7 @@ fun! docx#Read()
   let b:modifications = {}
   for node in docx_document['children'][0]['children']
     if node['tag'] == 'w:p'
-      for line in s:doParagraph(node)
+      for line in s:readParagraph(node)
         call appendbufline('%', '$', line)
       endfor
       call appendbufline('%', '$', '')
@@ -57,7 +58,7 @@ fun! docx#Read()
   endfor
 endfun
 
-fun! docx#Write()
+fun! s:writePart(fn, name, content)
   let curdir= getcwd()
   let tmpdir= tempname()
   if tmpdir =~ '\.'
@@ -65,9 +66,21 @@ fun! docx#Write()
   endif
   call mkdir(tmpdir.'/word','p')
 
-  exe 'balt '.tmpdir.'/word/document.xml'
+  exe 'balt '.tmpdir.'/word/'.a:name.'.xml'
   exe bufload('#')
   exe setbufline('#', 1, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>')
+  exe appendbufline('#', '$', s:doElement(a:content))
+
+  hide b #
+  sil w
+  b #
+  let olddir = chdir(tmpdir)
+  sil exe '!zip -qf '.shellescape(a:fn)
+  call chdir(olddir)
+  setlocal nomodified
+endf
+
+fun! docx#Write()
   let document = {'tag': 'w:document', 'attributes': {
         \ 'xmlns:wpc': 'http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas',
         \ 'xmlns:cx': 'http://schemas.microsoft.com/office/drawing/2014/chartex',
@@ -104,55 +117,63 @@ fun! docx#Write()
         \ 'xmlns:wne': 'http://schemas.microsoft.com/office/word/2006/wordml',
         \ 'xmlns:wps': 'http://schemas.microsoft.com/office/word/2010/wordprocessingShape',
         \ 'mc:Ignorable': 'w14 w15 w16se w16cid w16 w16cex w16sdtdh w16sdtfl w16du wp14',
-        \ }, 'children': [
-        \ {'tag': 'w:body', 'attributes': {}, 'children': []}
-        \ ]}
-  let body = document['children'][0]
-  for line in range(1,line('$'))
+        \ }, 'children': []}
+  let document['children'] = [s:writeBody(1, line('$'))]
+  call s:writePart(expand('%:p'), 'document', document)
+endf
+
+fun! s:writeBody(start, end)
+  let body = {'tag': 'w:body', 'attributes': {}, 'children': []}
+  for line in range(a:start, a:end)
     let text = getline(line)
     if match(text, '##### ') == 0
       if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [s:makeParagraph()]
+        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
       endif
-      let body['children'][-1]['children'][0]['children'] = [
+      let body['children'][-1]['children'] = [
+            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
             \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading5'}, 'children': []}
-            \ ]
+            \ ]}] + body['children'][-1]['children']
       let text = text[6:]
     elseif match(text, '#### ') == 0
       if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [s:makeParagraph()]
+        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
       endif
-      let body['children'][-1]['children'][0]['children'] = [
+      let body['children'][-1]['children'] = [
+            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
             \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading4'}, 'children': []}
-            \ ]
+            \ ]}] + body['children'][-1]['children']
       let text = text[5:]
     elseif match(text, '### ') == 0
       if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [s:makeParagraph()]
+        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
       endif
-      let body['children'][-1]['children'][0]['children'] = [
+      let body['children'][-1]['children'] = [
+            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
             \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading3'}, 'children': []}
-            \ ]
+            \ ]}] + body['children'][-1]['children']
       let text = text[4:]
     elseif match(text, '## ') == 0
       if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [s:makeParagraph()]
+        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
       endif
-      let body['children'][-1]['children'][0]['children'] = [
+      let body['children'][-1]['children'] = [
+            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
             \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading2'}, 'children': []}
-            \ ]
+            \ ]}] + body['children'][-1]['children']
       let text = text[3:]
     elseif match(text, '# ') == 0
       if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [s:makeParagraph()]
+        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
       endif
-      let body['children'][-1]['children'][0]['children'] = [
+      let body['children'][-1]['children'] = [
+            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
             \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading1'}, 'children': []}
-            \ ]
+            \ ]}] + body['children'][-1]['children']
       let text = text[2:]
     elseif match(text, '#(.\{-})') == 0
       if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [s:makeParagraph()]
+        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
       endif
       let style = text[2:match(text, ')') - 1]
       let body['children'][-1]['children'][0]['children'] = [
@@ -161,15 +182,16 @@ fun! docx#Write()
       let text = text[len(style) + 4:]
     elseif match(text, '* ') == 0
       if !s:isEmptyParagraph(body)
-        let body['children'] = body['children'] + [s:makeParagraph()]
+        let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
       endif
-      let body['children'][-1]['children'][0]['children'] = [
+      let body['children'][-1]['children'] = [
+            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
             \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'ListParagraph'}, 'children': []}
-            \ ]
+            \ ]}] + body['children'][-1]['children']
       let text = text[2:]
     endif
     if text == ''
-      let body['children'] = body['children'] + [s:makeParagraph()]
+      let body['children'] = body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
     else
       let last_pos = 0
       let matches =  matchbufline('%', '\*\*\?\*\?\([^*]\{-1,}\)\*\*\?\*\?', line, line, {'submatches': v:true})
@@ -235,15 +257,7 @@ fun! docx#Write()
   if s:isEmptyParagraph(body)
     unlet body['children'][-1]
   endif
-  exe appendbufline('#', '$', s:doElement(document))
-
-  hide b #
-  sil w
-  b #
-  let olddir = chdir(tmpdir)
-  sil exe '!zip -qf '.shellescape(expand("%:p"))
-  call chdir(olddir)
-  setlocal nomodified
+  return body
 endf
 
 fun! s:doElement(elem)
@@ -267,12 +281,6 @@ fun! s:doElement(elem)
   return xml.'</'.a:elem['tag'].'>'
 endf
 
-fun! s:makeParagraph()
-  return {'tag': 'w:p', 'attributes': {}, 'children': [
-        \ {'tag': 'w:pPr', 'attributes': {}, 'children': [] }
-        \ ]}
-endf
-
 fun! s:isEmptyParagraph(body)
   return len(a:body['children']) > 0 && a:body['children'][-1]['tag'] == 'w:p' && len(a:body['children'][-1]['children']) == 1 && len(a:body['children'][-1]['children'][0]['children']) == 0
 endf
@@ -290,7 +298,7 @@ fun! ToggleComments()
   endif
 endf
 
-fun! s:doParagraph(container)
+fun! s:readParagraph(container)
   let start = 0
   let lines = ['']
   if len(a:container['children']) == 0
@@ -317,7 +325,7 @@ fun! s:doParagraph(container)
     endfor
     let start = 1
   endif
-  return s:doRuns(lines, a:container['children'][start:])
+  return s:readRuns(lines, a:container['children'][start:])
 endf
 
 fun! s:doTable(container)
@@ -336,7 +344,7 @@ fun! s:doTableRow(container)
       call s:doTableRow(node)
     elseif node['tag'] == 'w:tc'
       for child in filter(node['children'], "v:val['tag'] == 'w:p'")
-        for line in s:doParagraph(child)
+        for line in s:readParagraph(child)
           call appendbufline('%', '$', line)
         endfor
         call appendbufline('%', '$', '')
@@ -345,20 +353,20 @@ fun! s:doTableRow(container)
   endfor
 endf
 
-fun! s:doRuns(lines, container)
+fun! s:readRuns(lines, container)
   let ret = a:lines
   for node in a:container
     if node['tag'] == 'w:r'
-      let ret = s:doRun(ret, node)
+      let ret = s:readRun(ret, node)
     elseif node['tag'] == 'w:ins'
       let sline = line('$') + len(ret)
       let scol = len(ret[-1]) + 1
-      let ret = s:doRuns(ret, node['children'])
+      let ret = s:readRuns(ret, node['children'])
       let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'type': 'insertion'}
     elseif node['tag'] == 'w:del'
       let sline = line('$') + len(ret)
       let scol = len(ret[-1]) + 1
-      let ret = s:doRuns(ret, node['children'])
+      let ret = s:readRuns(ret, node['children'])
       let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'type': 'deletion'}
     elseif node['tag'] == 'w:commentRangeStart'
       let b:modifications[node['attributes']['w:id']] = {'sline': line('$') + len(ret), 'scol': len(ret[-1]) + 1, 'type': 'comment'}
@@ -366,13 +374,13 @@ fun! s:doRuns(lines, container)
       let b:modifications[node['attributes']['w:id']]['end_lnum'] = line('$') + len(ret)
       let b:modifications[node['attributes']['w:id']]['end_col'] = len(ret[-1]) + 1
     elseif node['tag'] == 'w:moveTo'
-      let ret = s:doRuns(ret, node['children'])
+      let ret = s:readRuns(ret, node['children'])
     endif
   endfor
   return ret
 endf
 
-fun! s:doRun(lines, container)
+fun! s:readRun(lines, container)
   let ret = a:lines
   let bold = v:false
   let italic = v:false
@@ -440,7 +448,7 @@ fun! s:loadComments()
   let comments = s:loadPart(b:fn, 'word/comments.xml')
   call setbufline('%', 1, 'comments:')
   for node in filter(comments['children'], "v:val['tag'] == 'w:comment'")
-    call s:doComment(node)
+    call s:readComment(node)
   endfor
   au CursorMoved <buffer> call s:hiliteComment()
   set nomod undolevels=-123456
@@ -474,10 +482,10 @@ fun! s:hiliteComment()
   endwhile
 endf
 
-fun! s:doComment(node)
+fun! s:readComment(node)
   call appendbufline('%', '$', '  '.a:node['attributes']['w:id'].':')
   for node in a:node['children']
-    for line in s:doParagraph(node)
+    for line in s:readParagraph(node)
       call appendbufline('%', '$', '    '.line)
     endfor
     call appendbufline('%', '$', '')
