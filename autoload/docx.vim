@@ -168,28 +168,17 @@ endf
 fun! s:writeParagraph(body, line)
   let text = getline(a:line)
   let body = a:body
-  if match(text, '##### ') == 0
-    let body['children'] = s:addParagraph(body, 'Heading5')
-    let text = text[6:]
-  elseif match(text, '#### ') == 0
-    let body['children'] = s:addParagraph(body, 'Heading4')
-    let text = text[5:]
-  elseif match(text, '### ') == 0
-    let body['children'] = s:addParagraph(body, 'Heading3')
-    let text = text[4:]
-  elseif match(text, '## ') == 0
-    let body['children'] = s:addParagraph(body, 'Heading2')
-    let text = text[3:]
-  elseif match(text, '# ') == 0
-    let body['children'] = s:addParagraph(body, 'Heading1')
-    let text = text[2:]
-  elseif match(text, '#(.\{-})') == 0
-    let style = text[2:match(text, ')') - 1]
-    let body['children'] = s:addParagraph(body, style)
-    let text = text[len(style) + 4:]
-  elseif match(text, '* ') == 0
+  if match(text, '\s*#\+ ') == 0
+    let matches = matchlist(text, '\s*\(#\+\) \(.*\)')
+    let body['children'] = s:addParagraph(body, 'Heading'.len(matches[1]))
+    let text = matches[2]
+  elseif match(text, '\s*#(.\{-}) ') == 0
+    let matches = matchlist(text, '\s*#(\(.\{-}\)) \(.*\)')
+    let body['children'] = s:addParagraph(body, matches[1])
+    let text = matches[2]
+  elseif match(text, '\s*\* ') == 0
     let body['children'] = s:addParagraph(body, 'ListParagraph')
-    let text = text[2:]
+    let text = matchlist(text, '\s*\* \(.*\)')[1]
   endif
   if text == ''
     let body['children'] = s:addParagraph(body)
