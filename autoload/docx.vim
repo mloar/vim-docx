@@ -271,7 +271,7 @@ fun! s:isEmptyParagraph(body)
   return len(a:body['children']) > 0 && a:body['children'][-1]['tag'] == 'w:p' && len(a:body['children'][-1]['children']) == 0
 endf
 
-fun! ToggleComments()
+fun! docx#ToggleComments()
   let comment_ids = get(b:, 'comment_ids', [])
   if len(comment_ids) > 0
     for id in comment_ids
