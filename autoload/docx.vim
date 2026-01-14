@@ -522,7 +522,6 @@ fun! s:hiliteComment()
   while line > 0
     let matches = matchlist(getline(line), '^  \(\d\+\):$')
     if len(matches) > 0
-      echo matches[1]
       let start = prop_find(#{id: matches[1], type: 'comment', bufnr: 1, both: v:true, lnum: 1, col: 1})
       if empty(start)
         return
