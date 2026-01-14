@@ -69,7 +69,7 @@ fun! s:writePart(fn, name, content)
   exe 'balt '.tmpdir.'/word/'.a:name.'.xml'
   exe bufload('#')
   exe setbufline('#', 1, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>')
-  exe appendbufline('#', '$', s:doElement(a:content))
+  exe appendbufline('#', '$', s:writeElement(a:content))
 
   hide b #
   sil w
@@ -122,10 +122,128 @@ fun! docx#Write()
   call s:writePart(expand('%:p'), 'document', document)
 endf
 
+fun! s:getParagraphClass(text)
+  let trim = 0
+    if match(a:text, '\s*#\+ ') == 0
+      let matches = matchlist(a:text, '\s*\(#\+\) ')
+      return ['Heading'.len(matches[1]), len(matches[0])]
+    elseif match(a:text, '\s*#(.\{-}) ') == 0
+      let matches = matchlist(a:text, '\s*#(\(.\{-}\)) ')
+      return [matches[1], len(matches[0])]
+    elseif match(a:text, '\s*\* ') == 0
+      let matches = matchlist(a:text, '\s*\* ')
+      return ['ListParagraph', len(matches[0])]
+    endif
+    return [v:none, 0]
+endf
+
+fun! s:compareProp(a, b)
+  if a:a['type'] == 'comment' && a:b['type'] != 'comment'
+    if a:a['start'] == 0
+      return 1
+    else
+      return -1
+    endif
+  elseif a:a['type'] != 'comment' && a:b['type'] == 'comment'
+    if a:a['start'] == 0
+      return -1
+    else
+      return 1
+    endif
+  endif
+  return 0
+endf
+
+fun! s:comparePropStart(a, b)
+  return a:a['start'] - a:b['start']
+endf
+
 fun! s:writeBody(start, end)
-  let body = {'tag': 'w:body', 'attributes': {}, 'children': []}
+  let body = s:createElement('w:body')
   for line in range(a:start, a:end)
-    let body = s:writeParagraph(body, getline(line))
+    let text = getline(line)
+
+    let [class, trim] = s:getParagraphClass(text)
+    if class isnot v:none
+      let container = s:addParagraph(body, class)
+    endif
+
+    if text[trim:] == ''
+      let container = s:addParagraph(body)
+      continue
+    endif
+
+    if len(body['children']) == 0
+      let container = s:addParagraph(body)
+    endif
+
+    let props = filter(prop_list(line,
+          \ { 'types': ['insertion', 'deletion', 'comment']  }
+          \ ), "v:val['end'] == v:true || v:val['start'] == v:true")
+
+    if len(props) == 0
+      call s:writeRun(container, text[trim:])
+      continue
+    endif
+
+    let runs = s:calculateRuns(getline(line), props)
+
+    for run in runs
+      echo run['start']
+      echo props
+      let run_props = sort(filter(copy(props), "v:val['col'] == run['start']"), function("s:comparePropStart"))
+      echo run_props
+      if len(run_props) > 0
+        for prop in run_props
+          if prop['start'] == v:true
+            if prop['type'] == 'insertion'
+              let container = s:createElement('w:ins', {'w:id': prop['id']})
+              let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
+            elseif prop['type'] == 'deletion'
+              let container = s:createElement('w:del', {'w:id': prop['id']})
+              let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
+            else
+              let body['children'][-1]['children'] = body['children'][-1]['children']
+                    \ + [s:createElement('w:commentRangeStart', { 'w:id': prop['id'] })]
+            endif
+          elseif prop['col'] + prop['length'] <= run['end']
+            "echo 'closing '.prop['type'].' with id '.prop['id']
+            if prop['type'] == 'insertion' || prop['type'] == 'deletion'
+              let container = body['children'][-1]
+            else
+              let body['children'][-1]['children'] = body['children'][-1]['children']
+                    \ + [s:createElement('w:commentRangeEnd', {'w:id': prop['id']})]
+            endif
+          endif
+        endfor
+      endif
+      call s:writeRun(container, text[run['start']-1:run['end']-1])
+      let run_props = filter(copy(props), "v:val['col'] + v:val['length'] == run['end']")
+      if len(run_props) > 0
+        for prop in run_props
+          if prop['start'] == v:true
+            if prop['type'] == 'insertion'
+              let container = s:createElement('w:ins', {'w:id': prop['id']})
+              let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
+            elseif prop['type'] == 'deletion'
+              let container = s:createElement('w:del', {'w:id': prop['id']})
+              let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
+            else
+              let body['children'][-1]['children'] = body['children'][-1]['children']
+                    \ + [s:createElement('w:commentRangeStart', { 'w:id': prop['id'] })]
+            endif
+          else
+            "echo 'closing '.prop['type'].' with id '.prop['id']
+            if prop['type'] == 'insertion' || prop['type'] == 'deletion'
+              let container = body['children'][-1]
+            else
+              let body['children'][-1]['children'] = body['children'][-1]['children']
+                    \ + [s:createElement('w:commentRangeEnd', {'w:id': prop['id']})]
+            endif
+          endif
+        endfor
+      endif
+    endfor
   endfor
   if s:isEmptyParagraph(body)
     unlet body['children'][-1]
@@ -133,120 +251,151 @@ fun! s:writeBody(start, end)
   return body
 endf
 
-fun! s:setStyle(body, style)
-    return a:body['children'][-1]['children'] = [
-          \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
-          \ {'tag': 'w:pStyle', 'attributes': {'w:val': 'Heading5'}, 'children': []}
-          \ ]}] + body['children'][-1]['children']
-endf
-
 fun! s:addParagraph(body, style = v:none)
   if s:isEmptyParagraph(a:body)
     if a:style isnot v:none
-      let children = a:body['children']
-      let children[-1]['children'] = [
+      let a:body['children'][-1]['children'] = [
           \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
           \ {'tag': 'w:pStyle', 'attributes': {'w:val': a:style}, 'children': []}
-          \ ]}] + children[-1]['children']
-      return children
+          \ ]}] + a:body['children'][-1]['children']
+    endif
+  else
+    if a:style is v:none
+      let a:body['children'] = a:body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
     else
-      return a:body['children']
+      let a:body['children'] = a:body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': [
+            \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
+            \ {'tag': 'w:pStyle', 'attributes': {'w:val': a:style}, 'children': []}
+            \ ]}
+            \ ]}]
     endif
   endif
+  return a:body['children'][-1]
+endf
 
-  if a:style is v:none
-    return a:body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
-  else
-    return a:body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': [
-          \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
-          \ {'tag': 'w:pStyle', 'attributes': {'w:val': a:style}, 'children': []}
+fun! s:writeRun(container, text)
+  let text = a:text
+  let textTag = a:container['tag'] == 'w:del' ? 'w:delText' : 'w:t'
+
+  let last_pos = 0
+  let matches =  matchstrlist([text], '\*\*\?\*\?\([^*]\{-1,}\)\*\*\?\*\?', {'submatches': v:true})
+  if len(matches) > 0
+    for thing in matches
+      if last_pos < thing['byteidx']
+        let a:container['children'] = a:container['children'] + [
+              \ {'tag': 'w:r', 'attributes': {}, 'children': [
+              \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': text[last_pos:thing['byteidx']-1] }
+              \ ]}
+              \ ]
+      endif
+      let last_pos = thing['byteidx'] + len(thing['text'])
+
+      if match(thing['text'], '\*\*\*') >= 0
+        let a:container['children'] = a:container['children'] + [
+              \ {'tag': 'w:r', 'attributes': {}, 'children': [
+              \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
+              \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
+              \ {'tag': 'w:i', 'attributes': {}, 'children': [] }
+              \ ]},
+              \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
+              \ ]}
+              \ ]
+      elseif match(thing['text'], '\*\*') >= 0
+        let a:container['children'] = a:container['children'] + [
+              \ {'tag': 'w:r', 'attributes': {}, 'children': [
+              \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
+              \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
+              \ ]},
+              \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
+              \ ]}
+              \ ]
+      elseif match(thing['text'], '\*') >= 0
+        let a:container['children'] = a:container['children'] + [
+              \ {'tag': 'w:r', 'attributes': {}, 'children': [
+              \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
+              \ {'tag': 'w:i', 'attributes': {}, 'children': [] },
+              \ ]},
+              \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
+              \ ]}
+              \ ]
+      endif
+    endfor
+    let text = text[last_pos:]
+  endif
+  if match(text, '  $') >= 0
+    let text = substitute(text, ' *$', '', '')
+    let a:container['children'] = a:container['children'] + [
+          \ {'tag': 'w:r', 'attributes': {}, 'children': [
+          \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': text },
+          \ {'tag': 'w:br', 'attributes': {}, 'children': [] }
           \ ]}
-          \ ]}]
+          \ ]
+  elseif len(text) > 0
+    let a:container['children'] = a:container['children'] + [
+          \ {'tag': 'w:r', 'attributes': {}, 'children': [
+          \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': text }
+          \ ]}
+          \ ]
   endif
 endf
 
-fun! s:writeParagraph(body, text)
-  let text = a:text
+fun! s:writeParagraph(body, line)
+  let text = getline(a:line)
+  let col = 1
+
   let body = a:body
-  if match(text, '\s*#\+ ') == 0
-    let matches = matchlist(text, '\s*\(#\+\) \(.*\)')
-    let body['children'] = s:addParagraph(body, 'Heading'.len(matches[1]))
-    let text = matches[2]
-  elseif match(text, '\s*#(.\{-}) ') == 0
-    let matches = matchlist(text, '\s*#(\(.\{-}\)) \(.*\)')
-    let body['children'] = s:addParagraph(body, matches[1])
-    let text = matches[2]
-  elseif match(text, '\s*\* ') == 0
-    let body['children'] = s:addParagraph(body, 'ListParagraph')
-    let text = matchlist(text, '\s*\* \(.*\)')[1]
-  endif
+  let [class, trim] = s:getParagraphClass(text)
+  call s:addParagraph(body, class)
+  let col = col + trim
+  let text = text[trim:]
+
   if text == ''
-    let body['children'] = s:addParagraph(body)
-  else
-    let last_pos = 0
-    let matches =  matchstrlist([text], '\*\*\?\*\?\([^*]\{-1,}\)\*\*\?\*\?', {'submatches': v:true})
-    if len(matches) > 0
-      for thing in matches
-        if last_pos < thing['byteidx']
-          let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-                \ {'tag': 'w:r', 'attributes': {}, 'children': [
-                \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': text[last_pos:thing['byteidx']-1] }
-                \ ]}
-                \ ]
-        endif
-        let last_pos = thing['byteidx'] + len(thing['text'])
-        if match(thing['text'], '\*\*\*') >= 0
-          let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-                \ {'tag': 'w:r', 'attributes': {}, 'children': [
-                \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
-                \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
-                \ {'tag': 'w:i', 'attributes': {}, 'children': [] }
-                \ ]},
-                \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
-                \ ]}
-                \ ]
-        elseif match(thing['text'], '\*\*') >= 0
-          let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-                \ {'tag': 'w:r', 'attributes': {}, 'children': [
-                \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
-                \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
-                \ ]},
-                \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
-                \ ]}
-                \ ]
-        elseif match(thing['text'], '\*') >= 0
-          let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-                \ {'tag': 'w:r', 'attributes': {}, 'children': [
-                \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
-                \ {'tag': 'w:i', 'attributes': {}, 'children': [] },
-                \ ]},
-                \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
-                \ ]}
-                \ ]
-        endif
-      endfor
-      let text = text[last_pos:]
-    endif
-    if match(text, '  $') >= 0
-      let text = substitute(text, ' *$', '', '')
-      let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-            \ {'tag': 'w:r', 'attributes': {}, 'children': [
-            \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': text },
-            \ {'tag': 'w:br', 'attributes': {}, 'children': [] }
-            \ ]}
-            \ ]
-    elseif len(text) > 0
-      let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-            \ {'tag': 'w:r', 'attributes': {}, 'children': [
-            \ {'tag': 'w:t', 'attributes': {'xml:space': 'preserve'}, 'innerText': text }
-            \ ]}
-            \ ]
-    endif
+    call s:addParagraph(body)
+    return body
   endif
+
+  if len(body['children']) == 0
+    call s:addParagraph(body)
+  endif
+
+  let props = prop_list(a:line, {'types': ['insertion', 'deletion', 'comment']})
+  if len(props) == 0
+    call s:writeRun(body['children'][-1], text)
+    return body
+  endif
+
+  let runs = s:calculateRuns(getline(a:line))
+
+  let bobby = getline(a:line)
+  for run in runs
+    echo filter(props, "v:val['col'] == run['start']")
+    if len(props) == 0 || run['end'] < props[0]['col']
+      call s:writeRun(body['children'][-1], bobby[run['start']-1:run['end']-1])
+    else
+      if props[0]['type'] == 'insertion'
+        let body['children'][-1]['children'] = body['children'][-1]['children'] + [{'tag': 'w:ins', 'attributes': {'w:id': props[0]['id']}, 'children': []}]
+        call s:writeRun(body['children'][-1]['children'][-1], bobby[run['start']-1:run['end']-1])
+      elseif props[0]['type'] == 'deletion'
+        let body['children'][-1]['children'] = body['children'][-1]['children'] + [{'tag': 'w:del', 'attributes': {'w:id': props[0]['id']}, 'children': []}]
+        call s:writeRun(body['children'][-1]['children'][-1], bobby[run['start']-1:run['end']-1])
+      elseif props[0]['type'] == 'comment'
+        let body['children'][-1]['children'] = body['children'][-1]['children'] + [{'tag': 'w:commentRangeStart', 'attributes': {'w:id': props[0]['id']}, 'children': []}]
+        call s:writeRun(body['children'][-1], bobby[run['start']-1:run['end']-1])
+        let body['children'][-1]['children'] = body['children'][-1]['children'] + [{'tag': 'w:commentRangeEnd', 'attributes': {'w:id': props[0]['id']}, 'children': []}]
+      endif
+
+      let props = props[1:]
+    endif
+  endfor
+
   return body
 endf
 
-fun! s:doElement(elem)
+fun! s:createElement(tag, attributes = {}, children = [])
+  return {'tag': a:tag, 'attributes': a:attributes, 'children': a:children}
+endf
+
+fun! s:writeElement(elem)
   let xml = '<'.a:elem['tag']
   for attribute in keys(a:elem['attributes'])
     let xml = xml.' '.attribute.'="'.a:elem['attributes'][attribute].'"'
@@ -262,7 +411,7 @@ fun! s:doElement(elem)
 
   let xml = xml.'>'
   for child in a:elem['children']
-    let xml = xml.s:doElement(child)
+    let xml = xml.s:writeElement(child)
   endfor
   return xml.'</'.a:elem['tag'].'>'
 endf
@@ -505,7 +654,7 @@ fun! s:writeComments()
       endif
     endfor
     for para in range(content, line2)
-      let comment = s:writeParagraph(comment, getline(para))
+      let comment = s:writeParagraph(comment, para)
     endfor
     if s:isEmptyParagraph(comment)
       unlet comment['children'][-1]
@@ -585,4 +734,25 @@ fun! docx#MakeComment()
     40 vs Comments
     normal G$
   endif
+endf
+
+fun! s:calculateRuns(text, props)
+    let bobs = {'1': v:none}
+    for prop in a:props
+      let bobs[prop['col']] = v:none
+      if prop['col'] + prop['length'] < len(a:text)
+        let bobs[prop['col'] + prop['length']] = v:none
+      endif
+    endfor
+    let runs = []
+    for bob in sort(keys(bobs), 'N')
+      if len(runs) > 0
+        let runs[-1]['end'] = bob - 1
+      endif
+      if bob <= len(a:text)
+        let runs = runs + [{'start': bob + 0}]
+      endif
+    endfor
+    let runs[-1]['end'] = len(a:text)
+    return runs
 endf
