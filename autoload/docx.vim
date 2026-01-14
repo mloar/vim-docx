@@ -38,10 +38,10 @@ endf
 
 fun! docx#Read()
   let docx_document = s:loadPart(expand('%'), 'word/document.xml')
-  call prop_type_add('insertion', {'highlight': 'DiffAdd'})
-  call prop_type_add('deletion', {'highlight': 'DiffDelete'})
-  call prop_type_add('comment', {})
-  call prop_type_add('current-comment', {'highlight': 'Underlined'})
+  call prop_type_add('insertion', {'bufnr': bufnr(), 'highlight': 'DiffAdd'})
+  call prop_type_add('deletion', {'bufnr': bufnr(), 'highlight': 'DiffDelete'})
+  call prop_type_add('comment', {'bufnr': bufnr()})
+  call prop_type_add('current-comment', {'bufnr': bufnr(), 'highlight': 'Underlined'})
   let b:modifications = {}
   for node in docx_document['children'][0]['children']
     if node['tag'] == 'w:p'
