@@ -217,7 +217,7 @@ fun! s:writeBody(start, end)
             if prop['type'] == 'insertion' || prop['type'] == 'deletion'
               let container = body['children'][-1]
             else
-              let body['children'][-1]['children'] = body['children'][-1]['children']
+              let container['children'] = container['children']
                     \ + [s:createElement('w:commentRangeEnd', {'w:id': prop['id']})]
             endif
           endif
