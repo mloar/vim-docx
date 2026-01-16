@@ -180,10 +180,10 @@ fun! s:writeBody(start, end)
         for prop in start_props
           if prop['open'] == v:true
             if prop['type'] == 'insertion'
-              let container = s:createElement('w:ins', {'w:id': prop['id']})
+              let container = s:createElement('w:ins', {'w:id': prop['id'], 'w:author': b:modifications[prop['id']]['author'], 'w:date': b:modifications[prop['id']]['date'], 'w16du:dateUtc': b:modifications[prop['id']]['dateUtc'] })
               let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
             elseif prop['type'] == 'deletion'
-              let container = s:createElement('w:del', {'w:id': prop['id']})
+              let container = s:createElement('w:del', {'w:id': prop['id'], 'w:author': b:modifications[prop['id']]['author'], 'w:date': b:modifications[prop['id']]['date'], 'w16du:dateUtc': b:modifications[prop['id']]['dateUtc'] })
               let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
             else
               let container['children'] = container['children']
@@ -195,6 +195,15 @@ fun! s:writeBody(start, end)
             else
               let container['children'] = container['children']
                     \ + [s:createElement('w:commentRangeEnd', {'w:id': prop['id']})]
+              let body['children'][-1]['children'] = body['children'][-1]['children'] + [
+                    \ s:createElement('w:r', {}, [
+                    \ s:createElement('w:rPr', {}, [
+                    \ s:createElement('w:rStyle', {'w:val': 'CommentReference'}),
+                    \ s:createElement('w:sz', {'w:val': '24'}),
+                    \ s:createElement('w:szCs', {'w:val': '24'})
+                    \ ]),
+                    \ s:createElement('w:commentReference', {'w:id': prop['id']})
+                    \ ])]
             endif
           endif
         endfor
@@ -204,10 +213,10 @@ fun! s:writeBody(start, end)
         for prop in end_props
           if prop['open'] == v:true
             if prop['type'] == 'insertion'
-              let container = s:createElement('w:ins', {'w:id': prop['id']})
+              let container = s:createElement('w:ins', {'w:id': prop['id'], 'w:author': b:modifications[prop['id']]['author'], 'w:date': b:modifications[prop['id']]['date'], 'w16du:dateUtc': b:modifications[prop['id']]['dateUtc'] })
               let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
             elseif prop['type'] == 'deletion'
-              let container = s:createElement('w:del', {'w:id': prop['id']})
+              let container = s:createElement('w:del', {'w:id': prop['id'], 'w:author': b:modifications[prop['id']]['author'], 'w:date': b:modifications[prop['id']]['date'], 'w16du:dateUtc': b:modifications[prop['id']]['dateUtc'] })
               let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
             else
               let body['children'][-1]['children'] = body['children'][-1]['children']
@@ -219,6 +228,15 @@ fun! s:writeBody(start, end)
             else
               let container['children'] = container['children']
                     \ + [s:createElement('w:commentRangeEnd', {'w:id': prop['id']})]
+              let body['children'][-1]['children'] = body['children'][-1]['children'] + [
+                    \ s:createElement('w:r', {}, [
+                    \ s:createElement('w:rPr', {}, [
+                    \ s:createElement('w:rStyle', {'w:val': 'CommentReference'}),
+                    \ s:createElement('w:sz', {'w:val': '24'}),
+                    \ s:createElement('w:szCs', {'w:val': '24'})
+                    \ ]),
+                    \ s:createElement('w:commentReference', {'w:id': prop['id']})
+                    \ ])]
             endif
           endif
         endfor
@@ -449,12 +467,12 @@ fun! s:readRuns(lines, container)
       let sline = line('$') + len(ret)
       let scol = len(ret[-1]) + 1
       let ret = s:readRuns(ret, node['children'])
-      let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'type': 'insertion'}
+      let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'type': 'insertion', 'author': node['attributes']['w:author'], 'date': node['attributes']['w:date'], 'dateUtc': node['attributes']['w16du:dateUtc']}
     elseif node['tag'] == 'w:del'
       let sline = line('$') + len(ret)
       let scol = len(ret[-1]) + 1
       let ret = s:readRuns(ret, node['children'])
-      let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'type': 'deletion'}
+      let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'type': 'deletion', 'author': node['attributes']['w:author'], 'date': node['attributes']['w:date'], 'dateUtc': node['attributes']['w16du:dateUtc']}
     elseif node['tag'] == 'w:commentRangeStart'
       let b:modifications[node['attributes']['w:id']] = {'sline': line('$') + len(ret), 'scol': len(ret[-1]) + 1, 'type': 'comment'}
     elseif node['tag'] == 'w:commentRangeEnd'
