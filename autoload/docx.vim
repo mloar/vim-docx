@@ -137,27 +137,6 @@ fun! s:getParagraphClass(text)
     return [v:none, 0]
 endf
 
-fun! s:compareProp(a, b)
-  if a:a['type'] == 'comment' && a:b['type'] != 'comment'
-    if a:a['start'] == 0
-      return 1
-    else
-      return -1
-    endif
-  elseif a:a['type'] != 'comment' && a:b['type'] == 'comment'
-    if a:a['start'] == 0
-      return -1
-    else
-      return 1
-    endif
-  endif
-  return 0
-endf
-
-fun! s:comparePropStart(a, b)
-  return a:a['start'] - a:b['start']
-endf
-
 fun! s:writeBody(start, end)
   let body = s:createElement('w:body')
   for line in range(a:start, a:end)
@@ -186,16 +165,20 @@ fun! s:writeBody(start, end)
       continue
     endif
 
-    let runs = s:calculateRuns(getline(line), props)
+    let runs = s:calculateRuns(text, props)
+    let run_props = s:translateProps(copy(props))
 
     for run in runs
-      echo run['start']
-      echo props
-      let run_props = sort(filter(copy(props), "v:val['col'] == run['start']"), function("s:comparePropStart"))
-      echo run_props
-      if len(run_props) > 0
-        for prop in run_props
-          if prop['start'] == v:true
+      if run['end'] <= trim
+        continue
+      endif
+
+      let start_props = get(run_props, run['start'], [])
+      let end_props = get(run_props, run['end'], [])
+      "echo printf("I am a run on line %d, starting at %d and ending at %d. I have start props [%s] and end props [%s].", line, run['start'], run['end'], join(start_props, ','), join(end_props, ','))
+      if len(start_props) > 0
+        for prop in start_props
+          if prop['open'] == v:true
             if prop['type'] == 'insertion'
               let container = s:createElement('w:ins', {'w:id': prop['id']})
               let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
@@ -203,25 +186,23 @@ fun! s:writeBody(start, end)
               let container = s:createElement('w:del', {'w:id': prop['id']})
               let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
             else
-              let body['children'][-1]['children'] = body['children'][-1]['children']
+              let container['children'] = container['children']
                     \ + [s:createElement('w:commentRangeStart', { 'w:id': prop['id'] })]
             endif
-          elseif prop['col'] + prop['length'] <= run['end']
-            "echo 'closing '.prop['type'].' with id '.prop['id']
+          else
             if prop['type'] == 'insertion' || prop['type'] == 'deletion'
               let container = body['children'][-1]
             else
-              let body['children'][-1]['children'] = body['children'][-1]['children']
+              let container['children'] = container['children']
                     \ + [s:createElement('w:commentRangeEnd', {'w:id': prop['id']})]
             endif
           endif
         endfor
       endif
       call s:writeRun(container, text[run['start']-1:run['end']-1])
-      let run_props = filter(copy(props), "v:val['col'] + v:val['length'] == run['end']")
-      if len(run_props) > 0
-        for prop in run_props
-          if prop['start'] == v:true
+      if len(end_props) > 0
+        for prop in end_props
+          if prop['open'] == v:true
             if prop['type'] == 'insertion'
               let container = s:createElement('w:ins', {'w:id': prop['id']})
               let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
@@ -233,7 +214,6 @@ fun! s:writeBody(start, end)
                     \ + [s:createElement('w:commentRangeStart', { 'w:id': prop['id'] })]
             endif
           else
-            "echo 'closing '.prop['type'].' with id '.prop['id']
             if prop['type'] == 'insertion' || prop['type'] == 'deletion'
               let container = body['children'][-1]
             else
@@ -755,4 +735,25 @@ fun! s:calculateRuns(text, props)
     endfor
     let runs[-1]['end'] = len(a:text)
     return runs
+endf
+
+fun! s:compareProp(a, b)
+  return a:a['open'] - a:b['open']
+endf
+
+fun! s:translateProps(props)
+  let col_props = {}
+  for prop in a:props
+    if prop['start'] == 1
+      let col_props[prop['col']] = get(col_props, prop['col'], []) + [{'open': v:true, 'type': prop['type'], 'id': prop['id']}]
+    endif
+    if prop['end'] == 1
+      let start = max([prop['col'] + prop['length'] - 1, 1])
+      let col_props[start] = get(col_props, start, []) + [{'open': v:false, 'type': prop['type'], 'id': prop['id']}]
+    endif
+  endfor
+  for key in keys(col_props)
+    let col_props[key] = sort(col_props[key], function("s:compareProp"))
+  endfor
+  return col_props
 endf
