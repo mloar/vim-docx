@@ -320,53 +320,24 @@ fun! s:writeRun(container, text)
 endf
 
 fun! s:writeParagraph(body, line)
-  let text = getline(a:line)
-  let col = 1
-
   let body = a:body
-  let [class, trim] = s:getParagraphClass(text)
-  call s:addParagraph(body, class)
-  let col = col + trim
-  let text = text[trim:]
+  let text = getline(a:line)
 
-  if text == ''
+  let [class, trim] = s:getParagraphClass(text)
+  if class isnot v:none
+    let container = s:addParagraph(body, class)
+  endif
+
+  if text[trim:] == ''
     call s:addParagraph(body)
     return body
   endif
 
   if len(body['children']) == 0
-    call s:addParagraph(body)
+    let container = s:addParagraph(body)
   endif
 
-  let props = prop_list(a:line, {'types': ['insertion', 'deletion', 'comment']})
-  if len(props) == 0
-    call s:writeRun(body['children'][-1], text)
-    return body
-  endif
-
-  let runs = s:calculateRuns(getline(a:line))
-
-  let bobby = getline(a:line)
-  for run in runs
-    echo filter(props, "v:val['col'] == run['start']")
-    if len(props) == 0 || run['end'] < props[0]['col']
-      call s:writeRun(body['children'][-1], bobby[run['start']-1:run['end']-1])
-    else
-      if props[0]['type'] == 'insertion'
-        let body['children'][-1]['children'] = body['children'][-1]['children'] + [{'tag': 'w:ins', 'attributes': {'w:id': props[0]['id']}, 'children': []}]
-        call s:writeRun(body['children'][-1]['children'][-1], bobby[run['start']-1:run['end']-1])
-      elseif props[0]['type'] == 'deletion'
-        let body['children'][-1]['children'] = body['children'][-1]['children'] + [{'tag': 'w:del', 'attributes': {'w:id': props[0]['id']}, 'children': []}]
-        call s:writeRun(body['children'][-1]['children'][-1], bobby[run['start']-1:run['end']-1])
-      elseif props[0]['type'] == 'comment'
-        let body['children'][-1]['children'] = body['children'][-1]['children'] + [{'tag': 'w:commentRangeStart', 'attributes': {'w:id': props[0]['id']}, 'children': []}]
-        call s:writeRun(body['children'][-1], bobby[run['start']-1:run['end']-1])
-        let body['children'][-1]['children'] = body['children'][-1]['children'] + [{'tag': 'w:commentRangeEnd', 'attributes': {'w:id': props[0]['id']}, 'children': []}]
-      endif
-
-      let props = props[1:]
-    endif
-  endfor
+  call s:writeRun(container, text[trim:])
 
   return body
 endf
