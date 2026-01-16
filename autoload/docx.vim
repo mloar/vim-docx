@@ -271,9 +271,10 @@ fun! s:addParagraph(body, style = v:none)
   return a:body['children'][-1]
 endf
 
-fun! s:writeRun(container, text)
+fun! s:writeRun(container, text, preserve = 1)
   let text = a:text
   let textTag = a:container['tag'] == 'w:del' ? 'w:delText' : 'w:t'
+  let textAttributes = a:preserve ? {'xml:space': 'preserve'} : {}
 
   let last_pos = 0
   let matches =  matchstrlist([text], '\*\*\?\*\?\([^*]\{-1,}\)\*\*\?\*\?', {'submatches': v:true})
@@ -282,7 +283,7 @@ fun! s:writeRun(container, text)
       if last_pos < thing['byteidx']
         let a:container['children'] = a:container['children'] + [
               \ {'tag': 'w:r', 'attributes': {}, 'children': [
-              \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': text[last_pos:thing['byteidx']-1] }
+              \ {'tag': textTag, 'attributes': textAttributes, 'innerText': text[last_pos:thing['byteidx']-1] }
               \ ]}
               \ ]
       endif
@@ -295,7 +296,7 @@ fun! s:writeRun(container, text)
               \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
               \ {'tag': 'w:i', 'attributes': {}, 'children': [] }
               \ ]},
-              \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
+              \ {'tag': textTag, 'attributes': textAttributes, 'innerText': thing['submatches'][0] },
               \ ]}
               \ ]
       elseif match(thing['text'], '\*\*') >= 0
@@ -304,7 +305,7 @@ fun! s:writeRun(container, text)
               \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
               \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
               \ ]},
-              \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
+              \ {'tag': textTag, 'attributes': textAttributes, 'innerText': thing['submatches'][0] },
               \ ]}
               \ ]
       elseif match(thing['text'], '\*') >= 0
@@ -313,7 +314,7 @@ fun! s:writeRun(container, text)
               \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
               \ {'tag': 'w:i', 'attributes': {}, 'children': [] },
               \ ]},
-              \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': thing['submatches'][0] },
+              \ {'tag': textTag, 'attributes': textAttributes, 'innerText': thing['submatches'][0] },
               \ ]}
               \ ]
       endif
@@ -324,14 +325,14 @@ fun! s:writeRun(container, text)
     let text = substitute(text, ' *$', '', '')
     let a:container['children'] = a:container['children'] + [
           \ {'tag': 'w:r', 'attributes': {}, 'children': [
-          \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': text },
+          \ {'tag': textTag, 'attributes': textAttributes, 'innerText': text },
           \ {'tag': 'w:br', 'attributes': {}, 'children': [] }
           \ ]}
           \ ]
   elseif len(text) > 0
     let a:container['children'] = a:container['children'] + [
           \ {'tag': 'w:r', 'attributes': {}, 'children': [
-          \ {'tag': textTag, 'attributes': {'xml:space': 'preserve'}, 'innerText': text }
+          \ {'tag': textTag, 'attributes': textAttributes, 'innerText': text }
           \ ]}
           \ ]
   endif
@@ -355,7 +356,7 @@ fun! s:writeParagraph(body, line)
     let container = s:addParagraph(body)
   endif
 
-  call s:writeRun(container, text[trim:])
+  call s:writeRun(container, text[trim:], 0)
 
   return body
 endf
@@ -597,7 +598,7 @@ fun! s:writeComments()
         \ 'xmlns:wpi': "http://schemas.microsoft.com/office/word/2010/wordprocessingInk",
         \ 'xmlns:wne': "http://schemas.microsoft.com/office/word/2006/wordml",
         \ 'xmlns:wps': "http://schemas.microsoft.com/office/word/2010/wordprocessingShape",
-        \ 'mc:Ignorable': "w14 w15 w16se w16 cid w16 w16cex w16sdtdh w16sdtfl w16du wp14"}, 'children': []}
+        \ 'mc:Ignorable': "w14 w15 w16se w16cid w16 w16cex w16sdtdh w16sdtfl w16du wp14"}, 'children': []}
 
   let line = 2
   while line < line('$')
@@ -628,6 +629,14 @@ fun! s:writeComments()
     if s:isEmptyParagraph(comment)
       unlet comment['children'][-1]
     endif
+    let comment['children'][0]['children'] = comment['children'][0]['children'][0:0] + [
+          \ s:createElement('w:r', {}, [
+          \ s:createElement('w:rPr', {}, [
+          \ s:createElement('w:rStyle', {'w:val': 'CommentReference'})
+          \ ]),
+          \ s:createElement('w:annotationRef')
+          \ ])
+          \ ] + comment['children'][0]['children'][1:]
     let comments['children'] = comments['children'] + [comment]
     let line = line2 + 1
   endwhile
