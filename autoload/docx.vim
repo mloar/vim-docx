@@ -182,29 +182,26 @@ fun! s:writeBody(start, end)
           if prop['open'] == v:true
             if prop['type'] == 'insertion'
               let container = s:createElement('w:ins', {'w:id': prop['id'], 'w:author': b:modifications[prop['id']]['author'], 'w:date': b:modifications[prop['id']]['date'], 'w16du:dateUtc': b:modifications[prop['id']]['dateUtc'] })
-              let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
+              call add(body['children'][-1]['children'], container)
             elseif prop['type'] == 'deletion'
               let container = s:createElement('w:del', {'w:id': prop['id'], 'w:author': b:modifications[prop['id']]['author'], 'w:date': b:modifications[prop['id']]['date'], 'w16du:dateUtc': b:modifications[prop['id']]['dateUtc'] })
-              let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
+              call add(body['children'][-1]['children'], container)
             else
-              let container['children'] = container['children']
-                    \ + [s:createElement('w:commentRangeStart', { 'w:id': prop['id'] })]
+              call add(container['children'], s:createElement('w:commentRangeStart', { 'w:id': prop['id'] }))
             endif
           else
             if prop['type'] == 'insertion' || prop['type'] == 'deletion'
               let container = body['children'][-1]
             else
-              let container['children'] = container['children']
-                    \ + [s:createElement('w:commentRangeEnd', {'w:id': prop['id']})]
-              let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-                    \ s:createElement('w:r', {}, [
+              call add(container['children'], s:createElement('w:commentRangeEnd', {'w:id': prop['id']}))
+              call add(body['children'][-1]['children'], s:createElement('w:r', {}, [
                     \ s:createElement('w:rPr', {}, [
                     \ s:createElement('w:rStyle', {'w:val': 'CommentReference'}),
                     \ s:createElement('w:sz', {'w:val': '24'}),
                     \ s:createElement('w:szCs', {'w:val': '24'})
                     \ ]),
                     \ s:createElement('w:commentReference', {'w:id': prop['id']})
-                    \ ])]
+                    \ ]))
             endif
           endif
         endfor
@@ -215,29 +212,26 @@ fun! s:writeBody(start, end)
           if prop['open'] == v:true
             if prop['type'] == 'insertion'
               let container = s:createElement('w:ins', {'w:id': prop['id'], 'w:author': b:modifications[prop['id']]['author'], 'w:date': b:modifications[prop['id']]['date'], 'w16du:dateUtc': b:modifications[prop['id']]['dateUtc'] })
-              let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
+              call add(body['children'][-1]['children'], container)
             elseif prop['type'] == 'deletion'
               let container = s:createElement('w:del', {'w:id': prop['id'], 'w:author': b:modifications[prop['id']]['author'], 'w:date': b:modifications[prop['id']]['date'], 'w16du:dateUtc': b:modifications[prop['id']]['dateUtc'] })
-              let body['children'][-1]['children'] = body['children'][-1]['children'] + [container]
+              call add(body['children'][-1]['children'], container)
             else
-              let body['children'][-1]['children'] = body['children'][-1]['children']
-                    \ + [s:createElement('w:commentRangeStart', { 'w:id': prop['id'] })]
+              call add(body['children'][-1]['children'], s:createElement('w:commentRangeStart', { 'w:id': prop['id'] }))
             endif
           else
             if prop['type'] == 'insertion' || prop['type'] == 'deletion'
               let container = body['children'][-1]
             else
-              let container['children'] = container['children']
-                    \ + [s:createElement('w:commentRangeEnd', {'w:id': prop['id']})]
-              let body['children'][-1]['children'] = body['children'][-1]['children'] + [
-                    \ s:createElement('w:r', {}, [
+              call add(container['children'], s:createElement('w:commentRangeEnd', {'w:id': prop['id']}))
+              call add(body['children'][-1]['children'], s:createElement('w:r', {}, [
                     \ s:createElement('w:rPr', {}, [
                     \ s:createElement('w:rStyle', {'w:val': 'CommentReference'}),
                     \ s:createElement('w:sz', {'w:val': '24'}),
                     \ s:createElement('w:szCs', {'w:val': '24'})
                     \ ]),
                     \ s:createElement('w:commentReference', {'w:id': prop['id']})
-                    \ ])]
+                    \ ]))
             endif
           endif
         endfor
@@ -253,20 +247,19 @@ endf
 fun! s:addParagraph(body, style = v:none)
   if s:isEmptyParagraph(a:body)
     if a:style isnot v:none
-      let a:body['children'][-1]['children'] = [
-          \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
+      call insert(a:body['children'][-1]['children'], {'tag': 'w:pPr', 'attributes': {}, 'children': [
           \ {'tag': 'w:pStyle', 'attributes': {'w:val': a:style}, 'children': []}
-          \ ]}] + a:body['children'][-1]['children']
+          \ ]})
     endif
   else
     if a:style is v:none
-      let a:body['children'] = a:body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': []}]
+      call add(a:body['children'], {'tag': 'w:p', 'attributes': {}, 'children': []})
     else
-      let a:body['children'] = a:body['children'] + [{'tag': 'w:p', 'attributes': {}, 'children': [
+      call add(a:body['children'], {'tag': 'w:p', 'attributes': {}, 'children': [
             \ {'tag': 'w:pPr', 'attributes': {}, 'children': [
             \ {'tag': 'w:pStyle', 'attributes': {'w:val': a:style}, 'children': []}
             \ ]}
-            \ ]}]
+            \ ]})
     endif
   endif
   return a:body['children'][-1]
@@ -282,60 +275,48 @@ fun! s:writeRun(container, text, preserve = 1)
   if len(matches) > 0
     for thing in matches
       if last_pos < thing['byteidx']
-        let a:container['children'] = a:container['children'] + [
-              \ {'tag': 'w:r', 'attributes': {}, 'children': [
+        call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
               \ {'tag': textTag, 'attributes': textAttributes, 'innerText': text[last_pos:thing['byteidx']-1] }
-              \ ]}
-              \ ]
+              \ ]})
       endif
       let last_pos = thing['byteidx'] + len(thing['text'])
 
       if match(thing['text'], '\*\*\*') >= 0
-        let a:container['children'] = a:container['children'] + [
-              \ {'tag': 'w:r', 'attributes': {}, 'children': [
+        call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
               \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
               \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
               \ {'tag': 'w:i', 'attributes': {}, 'children': [] }
               \ ]},
               \ {'tag': textTag, 'attributes': textAttributes, 'innerText': thing['submatches'][0] },
-              \ ]}
-              \ ]
+              \ ]})
       elseif match(thing['text'], '\*\*') >= 0
-        let a:container['children'] = a:container['children'] + [
-              \ {'tag': 'w:r', 'attributes': {}, 'children': [
+        call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
               \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
               \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
               \ ]},
               \ {'tag': textTag, 'attributes': textAttributes, 'innerText': thing['submatches'][0] },
-              \ ]}
-              \ ]
+              \ ]})
       elseif match(thing['text'], '\*') >= 0
-        let a:container['children'] = a:container['children'] + [
-              \ {'tag': 'w:r', 'attributes': {}, 'children': [
+        call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
               \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
               \ {'tag': 'w:i', 'attributes': {}, 'children': [] },
               \ ]},
               \ {'tag': textTag, 'attributes': textAttributes, 'innerText': thing['submatches'][0] },
-              \ ]}
-              \ ]
+              \ ]})
       endif
     endfor
     let text = text[last_pos:]
   endif
   if match(text, '  $') >= 0
     let text = substitute(text, ' *$', '', '')
-    let a:container['children'] = a:container['children'] + [
-          \ {'tag': 'w:r', 'attributes': {}, 'children': [
+    call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
           \ {'tag': textTag, 'attributes': textAttributes, 'innerText': text },
           \ {'tag': 'w:br', 'attributes': {}, 'children': [] }
-          \ ]}
-          \ ]
+          \ ]})
   elseif len(text) > 0
-    let a:container['children'] = a:container['children'] + [
-          \ {'tag': 'w:r', 'attributes': {}, 'children': [
+    call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
           \ {'tag': textTag, 'attributes': textAttributes, 'innerText': text }
-          \ ]}
-          \ ]
+          \ ]})
   endif
 endf
 
@@ -400,7 +381,7 @@ fun! docx#ToggleComments()
   else
     let b:comment_ids = []
     for [key, comment] in filter(items(b:modifications), "v:val[1]['type'] == 'comment'")
-      let b:comment_ids = b:comment_ids + [popup_create(key, #{ pos: 'botleft', textprop: 'comment', textpropid: key, border: [], padding: [0,1,0,1], close: 'click'})]
+      call add(b:comment_ids, popup_create(key, #{ pos: 'botleft', textprop: 'comment', textpropid: key, border: [], padding: [0,1,0,1], close: 'click'}))
         endfor
   endif
 endf
@@ -432,7 +413,8 @@ fun! s:readParagraph(container)
     endfor
     let start = 1
   endif
-  return s:readRuns(lines, a:container['children'][start:])
+  call s:readRuns(lines, a:container['children'][start:])
+  return lines
 endf
 
 fun! s:doTable(container)
@@ -461,39 +443,36 @@ fun! s:doTableRow(container)
 endf
 
 fun! s:readRuns(lines, container)
-  let ret = a:lines
   for node in a:container
     if node['tag'] == 'w:r'
-      let ret = s:readRun(ret, node)
+      call s:readRun(a:lines, node)
     elseif node['tag'] == 'w:hyperlink'
-      let ret[-1] = ret[-1].'['
-      let ret = s:readRuns(ret, node['children'])
-      let target = filter(b:relationships['children'], "v:val['attributes']['Id'] == '".node['attributes']['r:id']."'")[0]['attributes']['Target']
-      let ret[-1] = ret[-1].']('.target.')'
+      let a:lines[-1] = a:lines[-1].'['
+      call s:readRuns(a:lines, node['children'])
+      let target = filter(b:documentRelationships['children'], "v:val['attributes']['Id'] == '".node['attributes']['r:id']."'")[0]['attributes']['Target']
+      let a:lines[-1] = a:lines[-1].']('.target.')'
     elseif node['tag'] == 'w:ins'
-      let sline = line('$') + len(ret)
-      let scol = len(ret[-1]) + 1
-      let ret = s:readRuns(ret, node['children'])
-      let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'type': 'insertion', 'author': node['attributes']['w:author'], 'date': node['attributes']['w:date'], 'dateUtc': node['attributes']['w16du:dateUtc']}
+      let sline = line('$') + len(a:lines)
+      let scol = len(a:lines[-1]) + 1
+      call s:readRuns(a:lines, node['children'])
+      let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(a:lines), 'end_col': len(a:lines[-1]) + 1, 'type': 'insertion', 'author': node['attributes']['w:author'], 'date': node['attributes']['w:date'], 'dateUtc': node['attributes']['w16du:dateUtc']}
     elseif node['tag'] == 'w:del'
-      let sline = line('$') + len(ret)
-      let scol = len(ret[-1]) + 1
-      let ret = s:readRuns(ret, node['children'])
-      let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(ret), 'end_col': len(ret[-1]) + 1, 'type': 'deletion', 'author': node['attributes']['w:author'], 'date': node['attributes']['w:date'], 'dateUtc': node['attributes']['w16du:dateUtc']}
+      let sline = line('$') + len(a:lines)
+      let scol = len(a:lines[-1]) + 1
+      call s:readRuns(a:lines, node['children'])
+      let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(a:lines), 'end_col': len(a:lines[-1]) + 1, 'type': 'deletion', 'author': node['attributes']['w:author'], 'date': node['attributes']['w:date'], 'dateUtc': node['attributes']['w16du:dateUtc']}
     elseif node['tag'] == 'w:commentRangeStart'
-      let b:modifications[node['attributes']['w:id']] = {'sline': line('$') + len(ret), 'scol': len(ret[-1]) + 1, 'type': 'comment'}
+      let b:modifications[node['attributes']['w:id']] = {'sline': line('$') + len(a:lines), 'scol': len(a:lines[-1]) + 1, 'type': 'comment'}
     elseif node['tag'] == 'w:commentRangeEnd'
-      let b:modifications[node['attributes']['w:id']]['end_lnum'] = line('$') + len(ret)
-      let b:modifications[node['attributes']['w:id']]['end_col'] = len(ret[-1]) + 1
+      let b:modifications[node['attributes']['w:id']]['end_lnum'] = line('$') + len(a:lines)
+      let b:modifications[node['attributes']['w:id']]['end_col'] = len(a:lines[-1]) + 1
     elseif node['tag'] == 'w:moveTo'
-      let ret = s:readRuns(ret, node['children'])
+      call s:readRuns(a:lines, node['children'])
     endif
   endfor
-  return ret
 endf
 
 fun! s:readRun(lines, container)
-  let ret = a:lines
   let bold = v:false
   let italic = v:false
   for t in a:container['children']
@@ -501,28 +480,27 @@ fun! s:readRun(lines, container)
       for prop in t['children']
         if prop['tag'] == 'w:b'
           let bold = v:true
-          let ret[-1] = ret[-1].'**'
+          let a:lines[-1] = a:lines[-1].'**'
         elseif prop['tag'] == 'w:i'
           let italic = v:true
-          let ret[-1] = ret[-1].'*'
+          let a:lines[-1] = a:lines[-1].'*'
         endif
       endfor
     elseif t['tag'] == 'w:t'
-      let ret[-1] = ret[-1].t['innerText']
+      let a:lines[-1] = a:lines[-1].t['innerText']
     elseif t['tag'] == 'w:delText'
-      let ret[-1] = ret[-1].t['innerText']
+      let a:lines[-1] = a:lines[-1].t['innerText']
     elseif t['tag'] == 'w:br'
-      let ret[-1] = ret[-1].'  '
-      let ret = ret + ['']
+      let a:lines[-1] = a:lines[-1].'  '
+      call add(a:lines, '')
     endif
   endfor
   if bold
-    let ret[-1] = ret[-1].'**'
+    let a:lines[-1] = a:lines[-1].'**'
   endif
   if italic
-    let ret[-1] = ret[-1].'*'
+    let a:lines[-1] = a:lines[-1].'*'
   endif
-  return ret
 endf
 
 fun! s:loadStyles()
@@ -635,15 +613,13 @@ fun! s:writeComments()
     if s:isEmptyParagraph(comment)
       unlet comment['children'][-1]
     endif
-    let comment['children'][0]['children'] = comment['children'][0]['children'][0:0] + [
-          \ s:createElement('w:r', {}, [
+    call insert(comment['children'][0]['children'], s:createElement('w:r', {}, [
           \ s:createElement('w:rPr', {}, [
           \ s:createElement('w:rStyle', {'w:val': 'CommentReference'})
           \ ]),
           \ s:createElement('w:annotationRef')
-          \ ])
-          \ ] + comment['children'][0]['children'][1:]
-    let comments['children'] = comments['children'] + [comment]
+          \ ]), 1)
+    call add(comments['children'], comment)
     let line = line2 + 1
   endwhile
   call s:writePart(b:fn, 'comments', comments)
@@ -734,7 +710,7 @@ fun! s:calculateRuns(text, props)
         let runs[-1]['end'] = bob - 1
       endif
       if bob <= len(a:text)
-        let runs = runs + [{'start': bob + 0}]
+        call add(runs, {'start': bob + 0})
       endif
     endfor
     let runs[-1]['end'] = len(a:text)
