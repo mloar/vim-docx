@@ -31,7 +31,7 @@ fun! docx#Load()
   au BufReadCmd <buffer> call docx#Read()
   au BufWriteCmd <buffer> call docx#Write()
   setlocal nomod buftype=acwrite undolevels=-123456
-  run! syntax/markdown.vim
+
 
   normal gg
 endf
