@@ -10,6 +10,7 @@ fun! docx#Load()
   let fn = expand("%:p")
 
   let b:parts = s:listParts(fn)
+  let b:relationships = s:loadPart(fn, 'word/_rels/document.xml.rels')
 
   setlocal undolevels=-1 noswapfile
   call docx#Read() | $d | 0d
@@ -464,6 +465,11 @@ fun! s:readRuns(lines, container)
   for node in a:container
     if node['tag'] == 'w:r'
       let ret = s:readRun(ret, node)
+    elseif node['tag'] == 'w:hyperlink'
+      let ret[-1] = ret[-1].'['
+      let ret = s:readRuns(ret, node['children'])
+      let target = filter(b:relationships['children'], "v:val['attributes']['Id'] == '".node['attributes']['r:id']."'")[0]['attributes']['Target']
+      let ret[-1] = ret[-1].']('.target.')'
     elseif node['tag'] == 'w:ins'
       let sline = line('$') + len(ret)
       let scol = len(ret[-1]) + 1
