@@ -1,5 +1,5 @@
 fun! s:listParts(fn)
-  return system('unzip -qql '.shellescape(a:fn)." | awk -F' ' '{print $4;}'")
+  return map(systemlist('unzip -qql '.shellescape(a:fn)), "v:val[30:]")
 endf
 
 fun! s:getPartRelationshipsName(part)
@@ -7,11 +7,11 @@ fun! s:getPartRelationshipsName(part)
 endf
 
 fun! s:loadPart(fn, part)
-  return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(a:part).' | xsltproc '.expand('<script>:h:h').'/xml-to-json.xsl - | sed -z "s/\n/\\n/g;s/‽/\\\\\"/g"'))
+  return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(a:part).' | xsltproc '.expand('<script>:h:h').'/xml-to-json.xsl -'))
 endf
 
 fun! s:loadRelationships(fn, part = '')
-  return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(s:getPartRelationshipsName(a:part)).' | xsltproc '.expand('<script>:h:h').'/xml-to-json.xsl - | sed -z "s/\n/\\n/g;s/‽/\\\\\"/g"'))
+  return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(s:getPartRelationshipsName(a:part)).' | xsltproc '.expand('<script>:h:h').'/xml-to-json.xsl -'))
 endf
 
 fun! s:getRelationships(type)
@@ -52,7 +52,6 @@ fun! docx#Load()
   let b:relationships = s:loadRelationships(fn)
   let b:documentPart = s:getDocumentPart()
   let b:documentRelationships = s:loadRelationships(fn, b:documentPart)
-  let b:documentRelationships['attributes']['xmlns'] = 'http://schemas.openxmlformats.org/package/2006/relationships'
 
   setlocal undolevels=-1 noswapfile
   call docx#Read() | $d | 0d
@@ -430,15 +429,24 @@ endf
 
 fun! s:writeElement(elem)
   let xml = '<'.a:elem['tag']
-  for attribute in keys(a:elem['attributes'])
-    let xml = xml.' '.attribute.'="'.a:elem['attributes'][attribute].'"'
+
+  for ns in keys(get(a:elem, 'namespaces', {}))
+    if len(ns) > 0
+      let xml = xml.' xmlns:'.ns.'="'.a:elem['namespaces'][ns].'"'
+    else
+      let xml = xml.' xmlns="'.a:elem['namespaces'][ns].'"'
+    endif
+  endfor
+
+  for attribute in keys(get(a:elem, 'attributes', {}))
+      let xml = xml.' '.attribute.'="'.a:elem['attributes'][attribute].'"'
   endfor
 
   if has_key(a:elem, 'innerText')
     return xml.'>'.a:elem['innerText'].'</'.a:elem['tag'].'>'
   endif
 
-  if len(a:elem['children']) == 0
+  if len(get(a:elem, 'children', [])) == 0
     return xml.'/>'
   endif
 
@@ -529,18 +537,18 @@ fun! s:readRuns(lines, container)
       call s:readRun(a:lines, node)
     elseif node['tag'] == 'w:hyperlink'
       let a:lines[-1] = a:lines[-1].'['
-      call s:readRuns(a:lines, node['children'])
+      call s:readRuns(a:lines, get(node, 'children', []))
       let target = filter(s:getDocumentRelationships('http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink'), "v:val['attributes']['Id'] == '".node['attributes']['r:id']."'")[0]['attributes']['Target']
       let a:lines[-1] = a:lines[-1].']('.target.')'
     elseif node['tag'] == 'w:ins'
       let sline = line('$') + len(a:lines)
       let scol = len(a:lines[-1]) + 1
-      call s:readRuns(a:lines, node['children'])
+      call s:readRuns(a:lines, get(node, 'children', []))
       let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(a:lines), 'end_col': len(a:lines[-1]) + 1, 'type': 'insertion', 'author': node['attributes']['w:author'], 'date': node['attributes']['w:date'], 'dateUtc': node['attributes']['w16du:dateUtc']}
     elseif node['tag'] == 'w:del'
       let sline = line('$') + len(a:lines)
       let scol = len(a:lines[-1]) + 1
-      call s:readRuns(a:lines, node['children'])
+      call s:readRuns(a:lines, get(node, 'children', []))
       let b:modifications[node['attributes']['w:id']] = {'sline': sline, 'scol': scol, 'end_lnum': line('$') + len(a:lines), 'end_col': len(a:lines[-1]) + 1, 'type': 'deletion', 'author': node['attributes']['w:author'], 'date': node['attributes']['w:date'], 'dateUtc': node['attributes']['w16du:dateUtc']}
     elseif node['tag'] == 'w:commentRangeStart'
       let b:modifications[node['attributes']['w:id']] = {'sline': line('$') + len(a:lines), 'scol': len(a:lines[-1]) + 1, 'type': 'comment'}
@@ -548,7 +556,7 @@ fun! s:readRuns(lines, container)
       let b:modifications[node['attributes']['w:id']]['end_lnum'] = line('$') + len(a:lines)
       let b:modifications[node['attributes']['w:id']]['end_col'] = len(a:lines[-1]) + 1
     elseif node['tag'] == 'w:moveTo'
-      call s:readRuns(a:lines, node['children'])
+      call s:readRuns(a:lines, get(node, 'children', []))
     endif
   endfor
 endf
