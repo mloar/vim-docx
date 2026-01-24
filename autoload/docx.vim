@@ -6,11 +6,37 @@ fun! s:loadPart(fn, part)
   return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(a:part).' | xsltproc '.expand('<script>:h:h').'/xml-to-json.xsl - | sed -z "s/\n/\\n/g;s/‽/\\\\\"/g"'))
 endf
 
+fun! s:loadRelationships(fn, part = '')
+  return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(fnamemodify(a:part, ':h:s?$?/?:s?^\./??').'_rels/'.fnamemodify(a:part, ':t').'.rels').' | xsltproc '.expand('<script>:h:h').'/xml-to-json.xsl - | sed -z "s/\n/\\n/g;s/‽/\\\\\"/g"'))
+endf
+
+fun! s:getRelationship(type)
+  let candidates = filter(b:relationships['children'], $"v:val['attributes']['Type'] == '{a:type}'")
+
+  if len(candidates) == 1
+    return candidates[0]['attributes']['Target']
+  endif
+
+  return v:none
+endf
+
+fun! s:getDocumentRelationship(type)
+  let candidates = filter(b:documentRelationships['children'], $"v:val['attributes']['Type'] == '{a:type}'")
+
+  if len(candidates) == 1
+    return fnamemodify(b:documentPart, ':h:s?$?/?:s?^./??').candidates[0]['attributes']['Target']
+  endif
+
+  return v:none
+endf
+
 fun! docx#Load()
   let fn = expand("%:p")
 
   let b:parts = s:listParts(fn)
-  let b:relationships = s:loadPart(fn, 'word/_rels/document.xml.rels')
+  let b:relationships = s:loadRelationships(fn)
+  let b:documentPart = s:getRelationship('http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument')
+  let b:documentRelationships = s:loadRelationships(fn, b:documentPart)
 
   setlocal undolevels=-1 noswapfile
   call docx#Read() | $d | 0d
@@ -20,9 +46,11 @@ fun! docx#Load()
   call setbufvar(bufnr, 'fn', fn)
   exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadStyles()'
 
-  if match(b:parts, 'word/comments.xml') >= 0
+  let b:commentsPart = s:getDocumentRelationship('http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments')
+  if b:commentsPart isnot v:none
     let bufnr = bufadd('Comments')
     call setbufvar(bufnr, 'fn', fn)
+    call setbufvar(bufnr, 'part', b:commentsPart)
     exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadComments()'
     exe 'au BufWriteCmd <buffer='.bufnr.'> call s:writeComments()'
     map <F6> :40vs Comments<CR>
@@ -33,12 +61,11 @@ fun! docx#Load()
   au BufWriteCmd <buffer> call docx#Write()
   setlocal nomod buftype=acwrite undolevels=-123456
 
-
   normal gg
 endf
 
 fun! docx#Read()
-  let docx_document = s:loadPart(expand('%'), 'word/document.xml')
+  let docx_document = s:loadPart(expand('%'), b:documentPart)
   call prop_type_add('insertion', {'bufnr': bufnr(), 'highlight': 'DiffAdd'})
   call prop_type_add('deletion', {'bufnr': bufnr(), 'highlight': 'DiffDelete'})
   call prop_type_add('comment', {'bufnr': bufnr()})
@@ -59,15 +86,16 @@ fun! docx#Read()
   endfor
 endfun
 
-fun! s:writePart(fn, name, content)
+fun! s:writePart(fn, part, content)
   let curdir= getcwd()
   let tmpdir= tempname()
   if tmpdir =~ '\.'
    let tmpdir= substitute(tmpdir,'\.[^.]*$','','e')
   endif
-  call mkdir(tmpdir.'/word','p')
+  call mkdir(tmpdir.'/'.fnamemodify(a:part, ':h'),'p')
 
-  exe 'balt '.tmpdir.'/word/'.a:name.'.xml'
+  echo a:part
+  exe 'balt '.tmpdir.'/'.a:part
   exe bufload('#')
   exe setbufline('#', 1, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>')
   exe appendbufline('#', '$', s:writeElement(a:content))
@@ -120,7 +148,7 @@ fun! docx#Write()
         \ 'mc:Ignorable': 'w14 w15 w16se w16cid w16 w16cex w16sdtdh w16sdtfl w16du wp14',
         \ }, 'children': []}
   let document['children'] = [s:writeBody(1, line('$'))]
-  call s:writePart(expand('%:p'), 'document', document)
+  call s:writePart(expand('%:p'), b:documentPart, document)
 endf
 
 fun! s:getParagraphClass(text)
@@ -535,7 +563,7 @@ endf
 fun! s:loadComments()
   set noswapfile buftype=acwrite undolevels=-1
 
-  let comments = s:loadPart(b:fn, 'word/comments.xml')
+  let comments = s:loadPart(b:fn, b:part)
   call setbufline('%', 1, 'comments:')
   for node in filter(comments['children'], "v:val['tag'] == 'w:comment'")
     call s:readComment(node)
@@ -622,7 +650,7 @@ fun! s:writeComments()
     call add(comments['children'], comment)
     let line = line2 + 1
   endwhile
-  call s:writePart(b:fn, 'comments', comments)
+  call s:writePart(b:fn, b:part, comments)
 endf
 
 fun! s:hiliteComment()
