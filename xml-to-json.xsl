@@ -23,9 +23,16 @@
         <xsl:text>,</xsl:text>
       </xsl:if>
     </xsl:for-each>
-    <xsl:text>],</xsl:text>
-    <xsl:text>&quot;innerText&quot;: &quot;</xsl:text>
-    <xsl:value-of select="translate(., '&quot;', '‽')" />
-    <xsl:text>&quot;}</xsl:text>
+    <xsl:choose>
+      <xsl:when test="text()">
+        <xsl:text>],</xsl:text>
+        <xsl:text>&quot;innerText&quot;: &quot;</xsl:text>
+        <xsl:value-of select="translate(., '&quot;', '‽')" />
+        <xsl:text>&quot;}</xsl:text>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:text>]}</xsl:text>
+      </xsl:otherwise>
+    </xsl:choose>
   </xsl:template>
 </xsl:stylesheet>

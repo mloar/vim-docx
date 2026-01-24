@@ -2,16 +2,31 @@ fun! s:listParts(fn)
   return system('unzip -qql '.shellescape(a:fn)." | awk -F' ' '{print $4;}'")
 endf
 
+fun! s:getPartRelationshipsName(part)
+  return fnamemodify(a:part, ':h:s?$?/?:s?^\./??').'_rels/'.fnamemodify(a:part, ':t').'.rels'
+endf
+
 fun! s:loadPart(fn, part)
   return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(a:part).' | xsltproc '.expand('<script>:h:h').'/xml-to-json.xsl - | sed -z "s/\n/\\n/g;s/‽/\\\\\"/g"'))
 endf
 
 fun! s:loadRelationships(fn, part = '')
-  return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(fnamemodify(a:part, ':h:s?$?/?:s?^\./??').'_rels/'.fnamemodify(a:part, ':t').'.rels').' | xsltproc '.expand('<script>:h:h').'/xml-to-json.xsl - | sed -z "s/\n/\\n/g;s/‽/\\\\\"/g"'))
+  return json_decode(system('unzip -p '.shellescape(a:fn).' '.shellescape(s:getPartRelationshipsName(a:part)).' | xsltproc '.expand('<script>:h:h').'/xml-to-json.xsl - | sed -z "s/\n/\\n/g;s/‽/\\\\\"/g"'))
 endf
 
-fun! s:getRelationship(type)
-  let candidates = filter(b:relationships['children'], $"v:val['attributes']['Type'] == '{a:type}'")
+fun! s:getRelationships(type)
+  return filter(copy(b:relationships['children']), $"v:val['attributes']['Type'] == '{a:type}'")
+endf
+
+fun! s:getDocumentRelationships(type = v:none)
+  if a:type is v:none
+    return copy(b:documentRelationships['children'])
+  endif
+  return filter(copy(b:documentRelationships['children']), $"v:val['attributes']['Type'] == '{a:type}'")
+endf
+
+fun! s:getDocumentPart()
+  let candidates = s:getRelationships('http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument')
 
   if len(candidates) == 1
     return candidates[0]['attributes']['Target']
@@ -20,11 +35,11 @@ fun! s:getRelationship(type)
   return v:none
 endf
 
-fun! s:getDocumentRelationship(type)
-  let candidates = filter(b:documentRelationships['children'], $"v:val['attributes']['Type'] == '{a:type}'")
+fun! s:getCommentPart()
+  let candidates = s:getDocumentRelationships('http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments')
 
   if len(candidates) == 1
-    return fnamemodify(b:documentPart, ':h:s?$?/?:s?^./??').candidates[0]['attributes']['Target']
+    return candidates[0]['attributes']['Target']
   endif
 
   return v:none
@@ -35,8 +50,9 @@ fun! docx#Load()
 
   let b:parts = s:listParts(fn)
   let b:relationships = s:loadRelationships(fn)
-  let b:documentPart = s:getRelationship('http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument')
+  let b:documentPart = s:getDocumentPart()
   let b:documentRelationships = s:loadRelationships(fn, b:documentPart)
+  let b:documentRelationships['attributes']['xmlns'] = 'http://schemas.openxmlformats.org/package/2006/relationships'
 
   setlocal undolevels=-1 noswapfile
   call docx#Read() | $d | 0d
@@ -46,7 +62,8 @@ fun! docx#Load()
   call setbufvar(bufnr, 'fn', fn)
   exe 'au BufReadCmd <buffer='.bufnr.'> call s:loadStyles()'
 
-  let b:commentsPart = s:getDocumentRelationship('http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments')
+  let b:commentsPart = s:getCommentPart()
+
   if b:commentsPart isnot v:none
     let bufnr = bufadd('Comments')
     call setbufvar(bufnr, 'fn', fn)
@@ -94,7 +111,6 @@ fun! s:writePart(fn, part, content)
   endif
   call mkdir(tmpdir.'/'.fnamemodify(a:part, ':h'),'p')
 
-  echo a:part
   exe 'balt '.tmpdir.'/'.a:part
   exe bufload('#')
   exe setbufline('#', 1, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>')
@@ -149,6 +165,7 @@ fun! docx#Write()
         \ }, 'children': []}
   let document['children'] = [s:writeBody(1, line('$'))]
   call s:writePart(expand('%:p'), b:documentPart, document)
+  call s:writePart(expand('%:p'), s:getPartRelationshipsName(b:documentPart), b:documentRelationships)
 endf
 
 fun! s:getParagraphClass(text)
@@ -294,7 +311,43 @@ fun! s:addParagraph(body, style = v:none)
 endf
 
 fun! s:writeRun(container, text, preserve = 1)
+  if match(a:text, "[[].*[]](.*)") >= 0
+    let start = match(a:text, "[[].*[]](.*)")
+    let end = start + len(matchstr(a:text, "[[].*[]](.*)"))
+
+    if start > 0
+      call s:writeRun(a:container, a:text[:start - 1], a:preserve)
+    endif
+
+    let href = a:text[match(a:text, "(") + 1:end - 2]
+    let anchor = a:text[start + 1:match(a:text, "[]]") - 1]
+
+    let candidates = filter(s:getDocumentRelationships('http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink'), $"v:val['attributes']['Target'] == '{href}'")
+    if len(candidates) == 1
+      let id = candidates[0]['attributes']['Id']
+    else
+      let rels = s:getDocumentRelationships()
+      if len(rels) == 0
+        let id = 'rId1'
+      else
+        let highId = sort(map(rels, "v:val['attributes']['Id']"))[-1]
+        let id = 'rId' . (matchstr(highId, '\d\+') + 1)
+      endif
+      call add(b:documentRelationships['children'], s:createElement('Relationship', {'Id': id, 'TargetMode': 'External', 'Type': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink', 'Target': href}))
+    endif
+
+    let hyperlink = s:createElement('w:hyperlink', {'r:id': id}, [])
+    call add(a:container['children'], hyperlink)
+    call s:writeRun(hyperlink, anchor, a:preserve)
+
+    if end < len(a:text)
+      call s:writeRun(a:container, a:text[end:], a:preserve)
+    endif
+    return
+  endif
+
   let text = a:text
+
   let textTag = a:container['tag'] == 'w:del' ? 'w:delText' : 'w:t'
   let textAttributes = a:preserve ? {'xml:space': 'preserve'} : {}
 
@@ -303,75 +356,75 @@ fun! s:writeRun(container, text, preserve = 1)
   if len(matches) > 0
     for thing in matches
       if last_pos < thing['byteidx']
-        call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
-              \ {'tag': textTag, 'attributes': textAttributes, 'innerText': text[last_pos:thing['byteidx']-1] }
-              \ ]})
+        call add(a:container['children'], s:createElement('w:r', {}, [
+              \ s:createElement(textTag, textAttributes, [], text[last_pos:thing['byteidx']-1])
+              \ ]))
       endif
       let last_pos = thing['byteidx'] + len(thing['text'])
 
       if match(thing['text'], '\*\*\*') >= 0
-        call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
-              \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
-              \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
-              \ {'tag': 'w:i', 'attributes': {}, 'children': [] }
-              \ ]},
-              \ {'tag': textTag, 'attributes': textAttributes, 'innerText': thing['submatches'][0] },
-              \ ]})
+        call add(a:container['children'], s:createElement('w:r', {}, [
+              \ s:createElement('w:rPr', {}, [
+              \ s:createElement('w:b'),
+              \ s:createElement('w:i'),
+              \ ]),
+              \ s:createElement(textTag, textAttributes, [], thing['submatches'][0] ),
+              \ ]))
       elseif match(thing['text'], '\*\*') >= 0
-        call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
-              \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
-              \ {'tag': 'w:b', 'attributes': {}, 'children': [] },
-              \ ]},
-              \ {'tag': textTag, 'attributes': textAttributes, 'innerText': thing['submatches'][0] },
-              \ ]})
+        call add(a:container['children'], s:createElement('w:r', {}, [
+              \ s:createElement('w:rPr', {}, [
+              \ s:createElement('w:b'),
+              \ ]),
+              \ s:createElement(textTag, textAttributes, [], thing['submatches'][0] ),
+              \ ]))
       elseif match(thing['text'], '\*') >= 0
-        call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
-              \ {'tag': 'w:rPr', 'attributes': {}, 'children': [
-              \ {'tag': 'w:i', 'attributes': {}, 'children': [] },
-              \ ]},
-              \ {'tag': textTag, 'attributes': textAttributes, 'innerText': thing['submatches'][0] },
-              \ ]})
+        call add(a:container['children'], s:createElement('w:r', {}, [
+              \ s:createElement('w:rPr', {}, [
+              \ s:createElement('w:i')
+              \ ]),
+              \ s:createElement(textTag, textAttributes, [], thing['submatches'][0] ),
+              \ ]))
       endif
     endfor
     let text = text[last_pos:]
   endif
   if match(text, '  $') >= 0
     let text = substitute(text, ' *$', '', '')
-    call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
-          \ {'tag': textTag, 'attributes': textAttributes, 'innerText': text },
-          \ {'tag': 'w:br', 'attributes': {}, 'children': [] }
-          \ ]})
+    call add(a:container['children'], s:createElement('w:r', {}, [
+          \ s:createElement(textTag, textAttributes, [], text ),
+          \ s:createElement('w:br')
+          \ ]))
   elseif len(text) > 0
-    call add(a:container['children'], {'tag': 'w:r', 'attributes': {}, 'children': [
-          \ {'tag': textTag, 'attributes': textAttributes, 'innerText': text }
-          \ ]})
+    call add(a:container['children'], s:createElement('w:r', {}, [
+          \ s:createElement(textTag, textAttributes, [], text )
+          \ ]))
   endif
 endf
 
 fun! s:writeParagraph(body, line)
-  let body = a:body
   let text = getline(a:line)
 
   let [class, trim] = s:getParagraphClass(text)
   if class isnot v:none
-    let container = s:addParagraph(body, class)
+    let container = s:addParagraph(a:body, class)
   endif
 
   if text[trim:] == ''
-    call s:addParagraph(body)
-    return body
+    call s:addParagraph(a:body)
+  else
+    if len(a:body['children']) == 0
+      let container = s:addParagraph(a:body)
+    endif
+
+    call s:writeRun(container, text[trim:], 0)
   endif
-
-  if len(body['children']) == 0
-    let container = s:addParagraph(body)
-  endif
-
-  call s:writeRun(container, text[trim:], 0)
-
-  return body
 endf
 
-fun! s:createElement(tag, attributes = {}, children = [])
+fun! s:createElement(tag, attributes = {}, children = [], innerText = v:none)
+  if a:innerText isnot v:none
+    return {'tag': a:tag, 'attributes': a:attributes, 'innerText': a:innerText}
+  endif
+
   return {'tag': a:tag, 'attributes': a:attributes, 'children': a:children}
 endf
 
@@ -477,7 +530,7 @@ fun! s:readRuns(lines, container)
     elseif node['tag'] == 'w:hyperlink'
       let a:lines[-1] = a:lines[-1].'['
       call s:readRuns(a:lines, node['children'])
-      let target = filter(b:documentRelationships['children'], "v:val['attributes']['Id'] == '".node['attributes']['r:id']."'")[0]['attributes']['Target']
+      let target = filter(s:getDocumentRelationships('http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink'), "v:val['attributes']['Id'] == '".node['attributes']['r:id']."'")[0]['attributes']['Target']
       let a:lines[-1] = a:lines[-1].']('.target.')'
     elseif node['tag'] == 'w:ins'
       let sline = line('$') + len(a:lines)
@@ -636,7 +689,7 @@ fun! s:writeComments()
       endif
     endfor
     for para in range(content, line2)
-      let comment = s:writeParagraph(comment, para)
+      call s:writeParagraph(comment, para)
     endfor
     if s:isEmptyParagraph(comment)
       unlet comment['children'][-1]
