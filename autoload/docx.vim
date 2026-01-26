@@ -80,6 +80,10 @@ fun! docx#Load()
   normal gg
 endf
 
+fun! s:shouldMergeParagraph(node)
+  return len(a:node['children']) > 0 && a:node['children'][0]['tag'] == 'w:pPr' && a:node['children'][0]['children'][0]['tag'] == 'w:rPr' && a:node['children'][0]['children'][0]['children'][0]['tag'] == 'w:del'
+endf
+
 fun! docx#Read()
   let docx_document = s:loadPart(expand('%'), b:documentPart)
   call prop_type_add('insertion', {'bufnr': bufnr(), 'highlight': 'DiffAdd'})
@@ -87,12 +91,17 @@ fun! docx#Read()
   call prop_type_add('comment', {'bufnr': bufnr()})
   call prop_type_add('current-comment', {'bufnr': bufnr(), 'highlight': 'Underlined'})
   let b:modifications = {}
+  let lines = ['']
   for node in docx_document['children'][0]['children']
     if node['tag'] == 'w:p'
-      for line in s:readParagraph(node)
-        call appendbufline('%', '$', line)
-      endfor
-      call appendbufline('%', '$', '')
+      call s:readParagraph(node, lines)
+      if !s:shouldMergeParagraph(node)
+        for line in lines
+          call appendbufline('%', '$', line)
+        endfor
+        call appendbufline('%', '$', '')
+        let lines = ['']
+      endif
     elseif node['tag'] == 'w:tbl'
       call s:doTable(node)
     endif
@@ -481,35 +490,33 @@ fun! docx#ToggleComments()
   endif
 endf
 
-fun! s:readParagraph(container)
+fun! s:readParagraph(container, lines)
   let start = 0
-  let lines = ['']
   if len(a:container['children']) == 0
     return []
   elseif a:container['children'][0]['tag'] == 'w:pPr'
     for prop in a:container['children'][0]['children']
       if prop['tag'] == 'w:pStyle'
         if prop['attributes']['w:val'] == 'ListParagraph'
-          let lines[-1] = '* '
+          let a:lines[-1] = '* '
         elseif prop['attributes']['w:val'] == 'Heading1'
-          let lines[-1] = '# '
+          let a:lines[-1] = '# '
         elseif prop['attributes']['w:val'] == 'Heading2'
-          let lines[-1] = '## '
+          let a:lines[-1] = '## '
         elseif prop['attributes']['w:val'] == 'Heading3'
-          let lines[-1] = '### '
+          let a:lines[-1] = '### '
         elseif prop['attributes']['w:val'] == 'Heading4'
-          let lines[-1] = '#### '
+          let a:lines[-1] = '#### '
         elseif prop['attributes']['w:val'] == 'Heading5'
-          let lines[-1] = '##### '
+          let a:lines[-1] = '##### '
         else
-          let lines[-1] = '#('.prop['attributes']['w:val'].') '
+          let a:lines[-1] = '#('.prop['attributes']['w:val'].') '
         endif
       endif
     endfor
     let start = 1
   endif
-  call s:readRuns(lines, a:container['children'][start:])
-  return lines
+  call s:readRuns(a:lines, a:container['children'][start:])
 endf
 
 fun! s:doTable(container)
@@ -528,7 +535,9 @@ fun! s:doTableRow(container)
       call s:doTableRow(node)
     elseif node['tag'] == 'w:tc'
       for child in filter(node['children'], "v:val['tag'] == 'w:p'")
-        for line in s:readParagraph(child)
+        let lines = ['']
+        call s:readParagraph(child, lines)
+        for line in lines
           call appendbufline('%', '$', line)
         endfor
         call appendbufline('%', '$', '')
@@ -758,7 +767,9 @@ fun! s:readComment(node)
   call appendbufline('%', '$', '    initials: '.a:node['attributes']['w:initials'])
   call appendbufline('%', '$', '    content:')
   for node in a:node['children']
-    for line in s:readParagraph(node)
+    let lines = ['']
+    call s:readParagraph(node, lines)
+    for line in lines
       call appendbufline('%', '$', '      '.line)
     endfor
     call appendbufline('%', '$', '')
