@@ -398,6 +398,12 @@ fun! s:writeRun(container, text, preserve = 1)
           \ s:createElement(textTag, textAttributes, [], text )
           \ ]))
   endif
+  if a:container['tag'] ==# 'w:hyperlink'
+    if a:container['children'][0]['children'][0]['tag'] != 'w:rPr'
+      call insert(a:container['children'][0]['children'], s:createElement('w:rPr'))
+    endif
+    call insert(a:container['children'][0]['children'][0]['children'], s:createElement('w:rStyle', {'w:val': 'Hyperlink'}))
+  endif
 endf
 
 fun! s:writeParagraph(body, line)
