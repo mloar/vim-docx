@@ -39,7 +39,7 @@ fun! s:getCommentPart()
   let candidates = s:getDocumentRelationships('http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments')
 
   if len(candidates) == 1
-    return candidates[0]['attributes']['Target']
+    return fnamemodify(b:documentPart, ':h:s?$?/?:s?^\./??').candidates[0]['attributes']['Target']
   endif
 
   return v:none
